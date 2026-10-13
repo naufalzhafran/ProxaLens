@@ -10,6 +10,7 @@ pub mod settings;
 pub mod store;
 pub mod sysproxy;
 pub mod throttle;
+pub mod tlsfail;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};

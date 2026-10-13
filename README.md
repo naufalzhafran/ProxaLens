@@ -6,7 +6,7 @@ Status: early development. See [docs/PLAN.md](docs/PLAN.md) for the roadmap and 
 
 ## What works today (Phases 0–1)
 - An HTTP/HTTPS MITM proxy on `127.0.0.1:9090` that starts with the app. HTTP/1.1 and HTTP/2 work, and WebSocket messages are captured.
-- A root CA generated per install. One click trusts it in the System keychain (macOS asks for your password).
+- A root CA generated per install. One click trusts it in your login keychain (macOS asks for your password).
 - A live, virtualized flow list with a filter, and a detail panel showing headers and bodies. Bodies over 5 MB are stored truncated but forwarded whole.
 - A system proxy toggle with crash-safe restore. Your original settings are saved before any change, and a watchdog process puts them back if the app is killed. See "System proxy crash safety" in the plan.
 

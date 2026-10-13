@@ -12,9 +12,22 @@ use engine::{DEFAULT_PORT, Engine, EngineConfig, SysProxyController};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .with_writer(std::io::stderr)
+    // hudsucker logs every refused handshake as an error; those are shown in
+    // the flow list instead (see tlsfail.rs), so keep them out of the
+    // terminal unless PROJECT_PROXY_DEBUG is set.
+    use tracing_subscriber::prelude::*;
+    let debug = std::env::var_os("PROJECT_PROXY_DEBUG").is_some();
+    let (tls_failures, failures) = engine::tlsfail::layer();
+    tracing_subscriber::registry()
+        .with(tls_failures)
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_filter(tracing_subscriber::filter::filter_fn(move |m| {
+                    *m.level() <= tracing::Level::INFO
+                        && (debug || !m.target().starts_with("hudsucker"))
+                })),
+        )
         .init();
     let _ = hudsucker::rustls::crypto::aws_lc_rs::default_provider().install_default();
 
@@ -22,9 +35,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
+        .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
             let engine = Arc::new(Engine::new(EngineConfig::new(&data_dir))?);
+            failures.connect(engine::tlsfail::recorder(engine.store.clone()));
             let marker = data_dir.join("sysproxy.marker.json");
             let sysproxy = Arc::new(SysProxyController::new(
                 Box::new(RealNetworkSetup),

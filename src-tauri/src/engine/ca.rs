@@ -1,5 +1,5 @@
 //! Root CA management: generate or load the CA used to sign per-host MITM
-//! certificates, and check/install trust in the macOS System keychain.
+//! certificates, and check/install trust in the user's login keychain.
 //!
 //! Port of httpmon's `internal/certutil`.
 
@@ -19,7 +19,6 @@ pub const CA_COMMON_NAME: &str = "Project Proxy CA";
 const KEY_FILE: &str = "ca-key.pem";
 const CERT_PEM_FILE: &str = "ca-cert.pem";
 const CERT_DER_FILE: &str = "ca-cert.cer";
-const SYSTEM_KEYCHAIN: &str = "/Library/Keychains/System.keychain";
 
 #[derive(Debug, thiserror::Error)]
 pub enum CaError {
@@ -99,37 +98,42 @@ impl CaBundle {
             .to_uppercase()
     }
 
-    /// True when this exact certificate is in the System keychain (where
-    /// `add-trusted-cert -d` puts it together with its trust settings).
+    /// True when macOS actually trusts the certificate as a root. Being in a
+    /// keychain is not enough: without a trust setting (for example when an
+    /// admin-domain install was silently refused) browsers still reject it.
     pub fn is_trusted(&self) -> bool {
-        let out = Command::new("/usr/bin/security")
-            .args([
-                "find-certificate",
-                "-a",
-                "-Z",
-                "-c",
-                CA_COMMON_NAME,
-                SYSTEM_KEYCHAIN,
-            ])
-            .output();
-        match out {
-            Ok(o) => fingerprint_listed(
-                &String::from_utf8_lossy(&o.stdout),
-                &self.sha1_fingerprint(),
-            ),
-            Err(_) => false,
-        }
+        Command::new("/usr/bin/security")
+            .args(["verify-cert", "-c"])
+            .arg(&self.cert_pem_path)
+            .args(["-p", "basic", "-L", "-R", "offline", "-q"])
+            .output()
+            .is_ok_and(|o| o.status.success())
     }
 
-    /// Adds the certificate to the System keychain as a trusted root.
-    /// macOS shows an administrator password prompt.
+    /// Adds the certificate to the login keychain and trusts it as a root for
+    /// this user (as Charles does). macOS asks for the user's password; this
+    /// works on managed Macs where admin-domain trust changes are refused.
     pub fn install_trust(&self) -> Result<(), CaError> {
-        let cmd = format!(
-            "/usr/bin/security add-trusted-cert -d -r trustRoot -k {} {}",
-            shell_quote(SYSTEM_KEYCHAIN),
-            shell_quote(&self.cert_der_path.to_string_lossy()),
-        );
-        run_as_admin(&cmd)
+        let home =
+            std::env::var_os("HOME").ok_or_else(|| CaError::Command("HOME is not set".into()))?;
+        let keychain = Path::new(&home).join("Library/Keychains/login.keychain-db");
+        let out = Command::new("/usr/bin/security")
+            .args(["add-trusted-cert", "-r", "trustRoot", "-k"])
+            .arg(&keychain)
+            .arg(&self.cert_der_path)
+            .output()?;
+        if !out.status.success() {
+            return Err(CaError::Command(format!(
+                "macOS did not trust the certificate: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
+        if !self.is_trusted() {
+            return Err(CaError::Command(format!(
+                "The certificate was added but macOS still doesn't trust it. Open Keychain Access, find \"{CA_COMMON_NAME}\" and set Trust → When using this certificate to \"Always Trust\". A device-management profile may also block this."
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -170,14 +174,6 @@ fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
         .mode(0o600)
         .open(path)?;
     f.write_all(contents)
-}
-
-fn fingerprint_listed(security_output: &str, sha1: &str) -> bool {
-    security_output.lines().any(|line| {
-        line.trim()
-            .strip_prefix("SHA-1 hash:")
-            .is_some_and(|h| h.trim().eq_ignore_ascii_case(sha1))
-    })
 }
 
 /// Single-quotes a string for `/bin/sh`.
@@ -230,13 +226,6 @@ mod tests {
         fs::write(dir.path().join(CERT_PEM_FILE), "junk").unwrap();
         let ca = CaBundle::load_or_create(dir.path()).unwrap();
         assert!(ca.cert_pem.contains("BEGIN CERTIFICATE"));
-    }
-
-    #[test]
-    fn parses_security_fingerprint_output() {
-        let out = "SHA-256 hash: AAAA\nSHA-1 hash: 0A1B2C\nkeychain: \"/Library/Keychains/System.keychain\"\n";
-        assert!(fingerprint_listed(out, "0a1b2c"));
-        assert!(!fingerprint_listed(out, "FFFF"));
     }
 
     #[test]

@@ -21,13 +21,35 @@ pub struct Settings {
 
 /// Which HTTPS hosts are decrypted. Hosts that aren't are tunnelled as-is
 /// and show up as a single CONNECT entry.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SslProxying {
     /// When non-empty, only these hosts are decrypted.
     pub include: Vec<String>,
     /// Never decrypted, even when they also match `include`.
     pub exclude: Vec<String>,
+}
+
+/// Apple services pin their certificates and fail (and retry constantly)
+/// when decrypted, so they are passed through by default.
+pub const DEFAULT_SSL_EXCLUDE: &[&str] = &[
+    "apple.com",
+    "*.apple.com",
+    "icloud.com",
+    "*.icloud.com",
+    "*.icloud-content.com",
+    "*.apple-cloudkit.com",
+    "*.mzstatic.com",
+    "*.cdn-apple.com",
+];
+
+impl Default for SslProxying {
+    fn default() -> Self {
+        Self {
+            include: Vec::new(),
+            exclude: DEFAULT_SSL_EXCLUDE.iter().map(|s| s.to_string()).collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -241,6 +263,14 @@ mod tests {
         );
         assert!(s.should_intercept("a.com:443"));
         assert!(s.throttle_for("a.com").is_none());
+    }
+
+    #[test]
+    fn apple_services_are_tunnelled_by_default() {
+        let s = Settings::default();
+        assert!(!s.should_intercept("gateway.icloud.com:443"));
+        assert!(!s.should_intercept("apple.com"));
+        assert!(s.should_intercept("ssl.gstatic.com:443"));
     }
 
     #[test]

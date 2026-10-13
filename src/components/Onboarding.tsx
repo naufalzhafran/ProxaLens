@@ -65,7 +65,7 @@ export function Onboarding({
           body={
             <>
               HTTPS traffic is decrypted with a root certificate created for this install only. macOS asks for your
-              password to add it to the System keychain.
+              password to trust it in your login keychain.
               <div className="mt-1 font-mono text-[11px] text-neutral-500">SHA-1 {status.caFingerprint}</div>
             </>
           }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api, type FlowMeta } from "../api";
-import { compareWith, editAndRepeat, files, repeat } from "../lib/actions";
+import { compareWith, dontDecrypt, editAndRepeat, files, repeat } from "../lib/actions";
 import { copy } from "../lib/clipboard";
 import { formatCurl } from "../lib/curl";
 import { buildPredicate } from "../lib/filter";
@@ -202,6 +202,9 @@ export function flowMenu(f: FlowMeta): MenuEntry[] {
     },
     { label: "Export as HAR…", onSelect: () => files.exportHar([f.id]) },
     "separator",
+    ...(f.scheme === "https" && f.state !== "tunnel"
+      ? [{ label: `Don’t Decrypt ${f.host}`, onSelect: () => dontDecrypt(f.host) }]
+      : []),
     {
       label: pinned.includes(domain) ? `Unpin ${domain}` : `Pin ${domain}`,
       onSelect: () => togglePin(domain),

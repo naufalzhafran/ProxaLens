@@ -52,7 +52,12 @@ Update this checklist as work lands so any agent or device can pick up where the
     - Host patterns are a port of `hostfilter` (`*.x.com` matches subdomains only).
   - Throttle (`engine/throttle.rs`, port of `throttle/`): presets for 3G/4G/Wi-Fi bandwidth plus latency, or custom values, optionally per host. Quick picker in the toolbar.
   - UI: a File menu (⌘O/⌘S), Compose (⌘N), Repeat (⌘R) and a Settings dialog (⌘,). File pickers come from `tauri-plugin-dialog`.
-  - Tests: 42 Rust unit, 14 Rust e2e (decoding, block, allow, SSL tunnel, throttle, repeat), 37 vitest. The app was smoke-run with gzip and brotli traffic; clicking through the new dialogs still has to be done by hand.
+  - Follow-up from the first real run:
+    - The CA had landed in the System keychain without a trust setting (admin-domain trust was silently refused on a managed Mac), yet the app reported it as trusted.
+    - `is_trusted` now uses `security verify-cert`, and install trusts the CA in the user's login keychain, as Charles does.
+    - TLS handshakes the client refuses are now captured from hudsucker's logs by a `tracing` layer (`engine/tlsfail.rs`). They're shown as failed CONNECT rows (repeats are folded into one row) and kept out of the terminal unless `PROJECT_PROXY_DEBUG` is set.
+    - A "Don't Decrypt <host>" context action, and Apple's pinned services are excluded from SSL Proxying by default.
+  - Tests: 45 Rust unit, 14 Rust e2e (decoding, block, allow, SSL tunnel, throttle, repeat), 37 vitest. The app was smoke-run with gzip and brotli traffic; clicking through the new dialogs still has to be done by hand.
 - [ ] Phase 4: Rules & breakpoints
 - [ ] Phase 5: Scripting
 - [ ] Phase 6: Advanced

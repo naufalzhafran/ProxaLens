@@ -2,7 +2,7 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, errorMessage, type FlowDetail, type OutgoingRequest } from "../api";
 import { useFlows } from "../state/flows";
-import { useUi, type Draft } from "../state/ui";
+import { useSettings, useUi, type Draft } from "../state/ui";
 import { useToast } from "./clipboard";
 import { buildPredicate } from "./filter";
 import { bodyBytes } from "./http";
@@ -131,4 +131,19 @@ export function visibleIds(): number[] {
   const s = useFlows.getState();
   const p = buildPredicate({ text: s.filter, methods: s.methods, statuses: s.statuses, scope: s.scope });
   return s.order.filter((id) => p(s.byId[id]));
+}
+
+/** Adds a host to SSL Proxying → "Never decrypt", so it is tunnelled. */
+export async function dontDecrypt(host: string) {
+  try {
+    const store = useSettings.getState();
+    const settings = store.settings ?? (await api.getSettings());
+    const exclude = settings.sslProxying.exclude;
+    if (!exclude.includes(host)) {
+      await store.save({ ...settings, sslProxying: { ...settings.sslProxying, exclude: [...exclude, host] } });
+    }
+    toast(`${host} will no longer be decrypted`);
+  } catch (e) {
+    toast(errorMessage(e));
+  }
 }
