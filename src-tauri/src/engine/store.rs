@@ -7,18 +7,22 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use parking_lot::RwLock;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
 pub type FlowId = u64;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FlowState {
     InProgress,
     Completed,
     Failed,
     WebSocket,
+    /// HTTPS passed through without decryption (SSL Proxying settings).
+    Tunnel,
+    /// Refused by the block list.
+    Blocked,
 }
 
 /// Summary fields shown in the flow list.
@@ -48,7 +52,7 @@ pub struct FlowMeta {
     pub ws_message_count: u32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum WsDirection {
     ClientToServer,
@@ -81,6 +85,9 @@ pub struct FlowData {
     pub response_body: Vec<u8>,
     pub response_body_truncated: bool,
     pub ws_messages: Vec<WsMessage>,
+    /// Bodies are already decoded (imported from HAR), so Content-Encoding
+    /// headers must not be applied again.
+    pub bodies_decoded: bool,
 }
 
 /// Change notifications for subscribers (the UI bridge, tests).

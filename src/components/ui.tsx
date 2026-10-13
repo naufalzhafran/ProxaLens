@@ -189,3 +189,55 @@ export function useResizable(initial: number, min: number, max: number, axis: "x
   );
   return { size, handle };
 }
+
+/** A centered dialog; Escape or the backdrop closes it. */
+export function Modal({
+  title,
+  onClose,
+  children,
+  footer,
+  wide,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  wide?: boolean;
+}) {
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [onClose]);
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-6"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        role="dialog"
+        aria-modal
+        aria-label={title}
+        className={`flex max-h-full w-full flex-col rounded-xl border border-neutral-200 bg-white text-xs shadow-2xl dark:border-neutral-700 dark:bg-neutral-900 ${
+          wide ? "max-w-5xl" : "max-w-2xl"
+        }`}
+      >
+        <div className="flex items-center border-b border-neutral-200 px-4 py-2.5 dark:border-neutral-800">
+          <h2 className="flex-1 text-sm font-semibold">{title}</h2>
+          <button className="opacity-60 hover:opacity-100" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-4">{children}</div>
+        {footer && (
+          <div className="flex items-center justify-end gap-2 border-t border-neutral-200 px-4 py-2.5 dark:border-neutral-800">
+            {footer}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export const input =
+  "rounded-md border border-neutral-300 bg-transparent px-2 py-1 font-mono text-xs dark:border-neutral-700";

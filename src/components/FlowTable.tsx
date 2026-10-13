@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api, type FlowMeta } from "../api";
+import { compareWith, editAndRepeat, files, repeat } from "../lib/actions";
 import { copy } from "../lib/clipboard";
 import { formatCurl } from "../lib/curl";
 import { buildPredicate } from "../lib/filter";
 import { baseDomain } from "../lib/http";
 import { formatBytes, formatDuration, formatTime, shortContentType, statusColor } from "../lib/format";
 import { useFlows } from "../state/flows";
+import { useUi } from "../state/ui";
 import { ContextMenu, type MenuEntry } from "./ui";
 
 const ROW_HEIGHT = 24;
@@ -129,7 +131,7 @@ export function FlowTable() {
                     {f.path}
                   </span>
                   <span className={`truncate ${selected ? "" : "text-neutral-500"}`}>
-                    {f.state === "webSocket" ? "ws" : shortContentType(f.contentType)}
+                    {f.state === "webSocket" ? "ws" : f.state === "tunnel" ? "tunnel" : shortContentType(f.contentType)}
                   </span>
                   <span className="text-right">{f.state === "completed" ? formatBytes(f.responseSize) : ""}</span>
                   <span className="text-right">{formatDuration(f.durationMs)}</span>
@@ -151,6 +153,8 @@ export function FlowTable() {
 }
 
 function statusLabel(f: FlowMeta): string {
+  if (f.state === "tunnel") return "TUN";
+  if (f.state === "blocked") return "BLK";
   if (f.state === "failed") return "ERR";
   if (f.state === "inProgress") return "…";
   return f.status?.toString() ?? "";
@@ -158,7 +162,9 @@ function statusLabel(f: FlowMeta): string {
 
 function rowClass(f: FlowMeta, selected: boolean, index: number): string {
   if (selected) return "bg-sky-600 text-white";
-  if (f.state === "failed") return "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300";
+  if (f.state === "failed" || f.state === "blocked")
+    return "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300";
+  if (f.state === "tunnel") return "text-neutral-400 italic";
   if (f.state === "inProgress") return "text-neutral-500";
   return index % 2 ? "bg-neutral-50 dark:bg-neutral-900" : "";
 }
@@ -166,6 +172,8 @@ function rowClass(f: FlowMeta, selected: boolean, index: number): string {
 /** Context-menu entries for one flow. Bodies are fetched on demand. */
 export function flowMenu(f: FlowMeta): MenuEntry[] {
   const { pinned, togglePin, setScope } = useFlows.getState();
+  const mark = useUi.getState().compareMark;
+  const replayable = f.state !== "tunnel" && f.state !== "webSocket";
   const domain = baseDomain(f.host);
   const withDetail = (fn: (d: NonNullable<Awaited<ReturnType<typeof api.getFlow>>>) => void) => () =>
     api.getFlow(f.id).then((d) => d && fn(d));
@@ -185,6 +193,14 @@ export function flowMenu(f: FlowMeta): MenuEntry[] {
       disabled: f.state !== "completed",
       onSelect: withDetail((d) => copy(d.responseBody.text ?? d.responseBody.base64 ?? "", "response body")),
     },
+    "separator",
+    { label: "Repeat", disabled: !replayable, onSelect: () => repeat(f.id) },
+    { label: "Edit and Repeat…", disabled: !replayable, onSelect: () => editAndRepeat(f.id) },
+    {
+      label: mark !== null && mark !== f.id ? `Compare with #${mark}` : "Mark for Comparison",
+      onSelect: () => compareWith(f.id),
+    },
+    { label: "Export as HAR…", onSelect: () => files.exportHar([f.id]) },
     "separator",
     {
       label: pinned.includes(domain) ? `Unpin ${domain}` : `Pin ${domain}`,

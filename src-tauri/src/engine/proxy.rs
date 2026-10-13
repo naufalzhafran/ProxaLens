@@ -1,8 +1,9 @@
 //! hudsucker handlers that record traffic into the [`Store`].
 //!
-//! Port of httpmon's `internal/proxy/interceptor.go`, minus scripting,
-//! throttling and decoding (later phases). Bodies are captured with a tee so
-//! streaming responses (SSE, downloads) keep flowing to the client.
+//! Port of httpmon's `internal/proxy/interceptor.go`, minus scripting (a
+//! later phase). Bodies are captured with a tee so streaming responses (SSE,
+//! downloads) keep flowing to the client. Bodies are stored as received;
+//! decoding happens when the UI asks (see `decode.rs`).
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -19,12 +20,14 @@ use hudsucker::tokio_tungstenite::tungstenite::Message;
 use hudsucker::{
     Body, HttpContext, HttpHandler, RequestOrResponse, WebSocketContext, WebSocketHandler,
 };
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 
+use super::settings::Settings;
 use super::store::{
     FlowData, FlowId, FlowMeta, FlowState, Store, WS_MESSAGES_CAP, WS_PAYLOAD_CAP, WsDirection,
     WsMessage,
 };
+use super::throttle::ThrottleBody;
 
 /// Bodies larger than this are recorded truncated (httpmon uses 5 MB too).
 pub const DEFAULT_BODY_CAP: usize = 5 * 1024 * 1024;
@@ -40,15 +43,17 @@ pub fn now_ms() -> f64 {
 pub struct Recorder {
     pub store: Arc<Store>,
     pub body_cap: usize,
+    pub settings: Arc<RwLock<Settings>>,
     /// Upgraded WebSocket connections, keyed by the client's socket address.
     websockets: Mutex<HashMap<SocketAddr, FlowId>>,
 }
 
 impl Recorder {
-    pub fn new(store: Arc<Store>, body_cap: usize) -> Arc<Self> {
+    pub fn new(store: Arc<Store>, body_cap: usize, settings: Arc<RwLock<Settings>>) -> Arc<Self> {
         Arc::new(Self {
             store,
             body_cap,
+            settings,
             websockets: Mutex::new(HashMap::new()),
         })
     }
@@ -60,12 +65,61 @@ impl Recorder {
 pub struct FlowHandler {
     rec: Arc<Recorder>,
     flow: Option<(FlowId, Instant)>,
+    host: String,
 }
 
 impl FlowHandler {
     pub fn new(rec: Arc<Recorder>) -> Self {
-        Self { rec, flow: None }
+        Self {
+            rec,
+            flow: None,
+            host: String::new(),
+        }
     }
+
+    /// Records a CONNECT that won't be decrypted (blocked or tunnelled).
+    fn record_connect(&self, ctx: &HttpContext, req: &Request<Body>, state: FlowState) {
+        let authority = req
+            .uri()
+            .authority()
+            .map(|a| a.to_string())
+            .unwrap_or_default();
+        let meta = FlowMeta {
+            id: 0,
+            method: "CONNECT".into(),
+            scheme: "https".into(),
+            host: req.uri().host().unwrap_or_default().to_string(),
+            path: String::new(),
+            url: authority,
+            http_version: version_str(req.version()).into(),
+            status: (state == FlowState::Blocked).then_some(403),
+            state,
+            content_type: None,
+            started_at: now_ms(),
+            ttfb_ms: None,
+            duration_ms: Some(0.0),
+            request_size: 0,
+            response_size: 0,
+            client_addr: ctx.client_addr.to_string(),
+            error: (state == FlowState::Blocked).then(|| BLOCKED.to_string()),
+            ws_message_count: 0,
+        };
+        let data = FlowData {
+            request_headers: headers_vec(req.headers()),
+            ..Default::default()
+        };
+        self.rec.store.add(meta, data);
+    }
+}
+
+const BLOCKED: &str = "Blocked by the block list";
+
+fn blocked_response() -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::FORBIDDEN)
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .body(Body::from(format!("Project Proxy: {BLOCKED}.")))
+        .expect("static response")
 }
 
 fn headers_vec(h: &header::HeaderMap) -> Vec<(String, String)> {
@@ -103,8 +157,18 @@ fn is_websocket_upgrade(req: &Request<Body>) -> bool {
 
 impl HttpHandler for FlowHandler {
     async fn handle_request(&mut self, ctx: &HttpContext, req: Request<Body>) -> RequestOrResponse {
-        // CONNECT only opens a tunnel; the requests inside it are recorded.
+        // CONNECT only opens a tunnel; the requests inside it are recorded,
+        // unless the tunnel is refused here or not decrypted (see
+        // `should_intercept_connect`).
         if req.method() == Method::CONNECT {
+            let host = req.uri().host().unwrap_or_default();
+            let policy = self.rec.settings.read().policy(host);
+            if policy.block {
+                if policy.record {
+                    self.record_connect(ctx, &req, FlowState::Blocked);
+                }
+                return blocked_response().into();
+            }
             return req.into();
         }
 
@@ -125,6 +189,15 @@ impl HttpHandler for FlowHandler {
             .map(|p| p.as_str().to_string())
             .unwrap_or_else(|| "/".into());
         let websocket = is_websocket_upgrade(&req);
+        self.host = host.clone();
+        let policy = self.rec.settings.read().policy(&host);
+        if !policy.record {
+            return if policy.block {
+                blocked_response().into()
+            } else {
+                req.into()
+            };
+        }
 
         let meta = FlowMeta {
             id: 0,
@@ -158,6 +231,16 @@ impl HttpHandler for FlowHandler {
         let started = Instant::now();
         self.flow = Some((id, started));
 
+        if policy.block {
+            self.rec.store.update(id, |m, _| {
+                m.state = FlowState::Blocked;
+                m.status = Some(403);
+                m.duration_ms = Some(elapsed_ms(started));
+                m.error = Some(BLOCKED.into());
+            });
+            return blocked_response().into();
+        }
+
         if websocket {
             // hudsucker answers the upgrade itself and never calls
             // handle_response, so mark the flow now.
@@ -182,7 +265,30 @@ impl HttpHandler for FlowHandler {
         Request::from_parts(parts, body).into()
     }
 
+    async fn should_intercept_connect(&mut self, ctx: &HttpContext, req: &Request<Body>) -> bool {
+        let host = req.uri().host().unwrap_or_default();
+        let (intercept, record) = {
+            let s = self.rec.settings.read();
+            (s.should_intercept(host), s.policy(host).record)
+        };
+        if !intercept && record {
+            self.record_connect(ctx, req, FlowState::Tunnel);
+        }
+        intercept
+    }
+
     async fn handle_response(&mut self, _ctx: &HttpContext, res: Response<Body>) -> Response<Body> {
+        let throttle = self.rec.settings.read().throttle_for(&self.host);
+        let res = match throttle {
+            Some((bytes_per_sec, latency_ms)) => {
+                if latency_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(latency_ms)).await;
+                }
+                let (parts, body) = res.into_parts();
+                Response::from_parts(parts, ThrottleBody::wrap(body, bytes_per_sec))
+            }
+            None => res,
+        };
         let Some((id, started)) = self.flow else {
             return res;
         };

@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage, type RestoreReport, type Status } from "./api";
+import { Composer } from "./components/Composer";
+import { DiffView } from "./components/DiffView";
 import { FilterBar } from "./components/FilterBar";
 import { FlowTable } from "./components/FlowTable";
 import { Inspector } from "./components/Inspector";
 import { Onboarding, shouldShowOnboarding } from "./components/Onboarding";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import { useResizable } from "./components/ui";
+import { files, repeat } from "./lib/actions";
 import { useToast } from "./lib/clipboard";
 import { MAX_FLOWS, useFlows } from "./state/flows";
+import { emptyDraft, useUi } from "./state/ui";
 
 export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -18,6 +23,9 @@ export default function App() {
   const onboardingChecked = useRef(false);
   const filterRef = useRef<HTMLInputElement>(null);
   const toast = useToast((s) => s.message);
+  const composer = useUi((s) => s.composer);
+  const diff = useUi((s) => s.diff);
+  const settingsTab = useUi((s) => s.settingsTab);
   const sidebar = useResizable(200, 140, 400, "x", "sidebarWidth");
   const table = useResizable(640, 320, 2000, "x", "tableWidth");
 
@@ -67,14 +75,27 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey) return;
-      if (e.key === "f") {
+      if (!e.metaKey || e.shiftKey || e.altKey) return;
+      const ui = useUi.getState();
+      // Leave shortcuts alone while a dialog is open (except ⌘F/⌘K).
+      const modal = ui.composer || ui.diff || ui.settingsTab;
+      const selected = useFlows.getState().selectedId;
+      const actions: Record<string, () => void> = {
+        f: () => {
+          filterRef.current?.focus();
+          filterRef.current?.select();
+        },
+        k: () => api.clearFlows().catch((err) => setError(errorMessage(err))),
+        o: () => !modal && files.open(),
+        s: () => !modal && files.saveSession(),
+        n: () => !modal && ui.openComposer(emptyDraft),
+        r: () => !modal && selected !== null && repeat(selected),
+        ",": () => !modal && ui.openSettings("ssl"),
+      };
+      const action = actions[e.key];
+      if (action) {
         e.preventDefault();
-        filterRef.current?.focus();
-        filterRef.current?.select();
-      } else if (e.key === "k") {
-        e.preventDefault();
-        api.clearFlows().catch((err) => setError(errorMessage(err)));
+        action();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -121,6 +142,9 @@ export default function App() {
       {setupOpen && status && (
         <Onboarding status={status} setStatus={setStatus} onClose={() => setSetupOpen(false)} />
       )}
+      {composer && <Composer initial={composer} />}
+      {diff && <DiffView ids={diff} />}
+      {settingsTab && <SettingsDialog initialTab={settingsTab} />}
       {toast && (
         <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md bg-neutral-900 px-3 py-1.5 text-xs text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">
           {toast}

@@ -2,7 +2,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-export type FlowState = "inProgress" | "completed" | "failed" | "webSocket";
+export type FlowState = "inProgress" | "completed" | "failed" | "webSocket" | "tunnel" | "blocked";
 
 export interface FlowMeta {
   id: number;
@@ -30,6 +30,11 @@ export interface BodyView {
   truncated: boolean;
   text: string | null;
   base64: string | null;
+  /** Content-Encoding removed for display, e.g. "gzip". */
+  encoding?: string | null;
+  /** Size on the wire before decoding. */
+  encodedSize?: number | null;
+  decodeError?: string | null;
 }
 
 export interface WsMessageView {
@@ -66,6 +71,32 @@ export interface RestoreReport {
   skipped: string[];
 }
 
+export interface HostList {
+  enabled: boolean;
+  hosts: string[];
+}
+
+export interface Settings {
+  sslProxying: { include: string[]; exclude: string[] };
+  blockList: HostList;
+  allowList: HostList;
+  throttle: {
+    enabled: boolean;
+    preset: string;
+    bytesPerSec: number;
+    latencyMs: number;
+    hosts: string[];
+  };
+}
+
+export interface OutgoingRequest {
+  method: string;
+  url: string;
+  headers: [string, string][];
+  /** Raw bytes. */
+  body: number[];
+}
+
 export type FlowBatch =
   | { type: "upserts"; flows: FlowMeta[] }
   | { type: "cleared" }
@@ -87,6 +118,13 @@ export const api = {
     channel.onmessage = onBatch;
     return invoke<void>("subscribe_flows", { onEvent: channel });
   },
+  getSettings: () => invoke<Settings>("get_settings"),
+  setSettings: (settings: Settings) => invoke<Settings>("set_settings", { settings }),
+  exportHar: (path: string, ids?: number[]) => invoke<number>("export_har", { path, ids }),
+  saveSession: (path: string) => invoke<number>("save_session", { path }),
+  importFlows: (path: string, replace: boolean) => invoke<number>("import_flows", { path, replace }),
+  repeatFlow: (id: number) => invoke<number | null>("repeat_flow", { id }),
+  sendRequest: (request: OutgoingRequest) => invoke<number | null>("send_request", { request }),
   /** Fires when the tray (or another command) changes proxy state. */
   onStatusChanged: (cb: () => void) => listen("status-changed", cb),
 };

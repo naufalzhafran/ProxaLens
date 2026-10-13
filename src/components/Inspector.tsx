@@ -1,6 +1,7 @@
 // Right pane: request on top, response below, each with tabs.
 import { useEffect, useMemo, useState } from "react";
 import { api, errorMessage, type BodyView, type FlowDetail, type WsMessageView } from "../api";
+import { editAndRepeat, repeat } from "../lib/actions";
 import { copy } from "../lib/clipboard";
 import { formatCurl } from "../lib/curl";
 import { formatBytes, formatDuration, formatTime, statusColor } from "../lib/format";
@@ -59,6 +60,16 @@ export function Inspector() {
           <span className={statusColor(m.status)}>{m.status ?? (m.state === "failed" ? "ERR" : "…")}</span> {m.url}
           {m.error && <div className="mt-1 text-red-500">{m.error}</div>}
         </div>
+        {m.state !== "tunnel" && m.state !== "webSocket" && (
+          <>
+            <button className={button} title="Send this request again" onClick={() => repeat(m.id)}>
+              Repeat
+            </button>
+            <button className={button} onClick={() => editAndRepeat(m.id)}>
+              Edit…
+            </button>
+          </>
+        )}
         <button className={button} onClick={() => copy(m.url, "URL")}>
           Copy URL
         </button>
@@ -140,6 +151,12 @@ function ResponsePane({ detail }: { detail: FlowDetail }) {
       <div className="selectable min-h-0 flex-1 overflow-auto p-2 text-xs">
         {m.state === "inProgress" && shown !== "timing" && (
           <p className="mb-2 text-neutral-500">Waiting for the response…</p>
+        )}
+        {m.state === "tunnel" && (
+          <p className="mb-2 text-neutral-500">
+            This connection was passed through without decryption, so its contents can’t be shown. Change this under
+            Settings → SSL Proxying.
+          </p>
         )}
         {shown === "headers" && <KeyValues rows={detail.responseHeaders} empty="No headers" />}
         {shown === "cookies" && <Cookies cookies={cookies} />}
@@ -224,8 +241,10 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
       <div className="mb-2 flex items-center gap-2 text-neutral-500">
         <span>
           {formatBytes(body.size)}
+          {body.encoding && body.encodedSize != null && ` · ${body.encoding}, ${formatBytes(body.encodedSize)} on the wire`}
           {body.truncated && " (truncated at capture limit)"}
           {kind === "binary" && " · binary"}
+          {body.decodeError && <span className="text-amber-600"> · {body.decodeError}; showing raw bytes</span>}
         </span>
         {modes.length > 1 && (
           <div className="ml-auto flex overflow-hidden rounded-md border border-neutral-300 dark:border-neutral-700">

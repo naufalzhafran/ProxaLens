@@ -84,7 +84,9 @@ pub fn refresh(app: &AppHandle, addr: Option<std::net::SocketAddr>, system_proxy
     };
     let _ = items.status.set_text(text);
     let _ = items.system_proxy.set_checked(system_proxy);
-    let _ = items.system_proxy.set_enabled(addr.is_some() || system_proxy);
+    let _ = items
+        .system_proxy
+        .set_enabled(addr.is_some() || system_proxy);
 }
 
 fn show_main_window(app: &AppHandle) {

@@ -1,6 +1,7 @@
 // Copy-as-cURL, ported from httpmon's internal/tui/curl.go. Unlike the
 // original, values are shell-escaped and Content-Length is dropped (curl
-// computes it, and a truncated body would make it wrong).
+// computes it, and a truncated body would make it wrong). Bodies are the
+// decoded ones the inspector shows.
 import type { BodyView } from "../api";
 
 const SKIP = new Set(["content-length"]);
@@ -18,8 +19,10 @@ export function formatCurl(
 ): string {
   const parts = ["curl"];
   if (method !== "GET") parts.push("-X", method);
+  // A decoded body is sent as-is, so its Content-Encoding no longer applies.
+  const decoded = !!body?.encoding;
   const sorted = headers
-    .filter(([k]) => !SKIP.has(k.toLowerCase()))
+    .filter(([k]) => !SKIP.has(k.toLowerCase()) && !(decoded && k.toLowerCase() === "content-encoding"))
     .sort(([a], [b]) => (a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0));
   for (const [k, v] of sorted) parts.push("-H", shellQuote(`${k}: ${v}`));
   if (body && body.size > 0) {

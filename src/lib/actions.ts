@@ -1,0 +1,134 @@
+// Flow actions shared by the context menu, inspector and toolbar.
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { api, errorMessage, type FlowDetail, type OutgoingRequest } from "../api";
+import { useFlows } from "../state/flows";
+import { useUi, type Draft } from "../state/ui";
+import { useToast } from "./clipboard";
+import { buildPredicate } from "./filter";
+import { bodyBytes } from "./http";
+
+const toast = (m: string) => useToast.getState().show(m);
+
+/** Headers a composed request shouldn't carry over (reqwest sets them). */
+const DROP = new Set(["content-length", "host", "connection", "proxy-connection", "keep-alive", "transfer-encoding"]);
+
+export function draftFromDetail(d: FlowDetail): Draft {
+  const body = d.requestBody;
+  const headers = d.requestHeaders
+    .filter(([k]) => !DROP.has(k.toLowerCase()))
+    // The body is shown decoded, so it is sent decoded too.
+    .filter(([k]) => !(body.encoding && k.toLowerCase() === "content-encoding"))
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n");
+  return {
+    method: d.meta.method,
+    url: d.meta.url,
+    headers,
+    body: body.text ?? "",
+    binaryBody: body.text === null && body.size > 0 ? Array.from(bodyBytes(body)) : null,
+  };
+}
+
+export function parseHeaders(text: string): [string, string][] {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const i = l.indexOf(":");
+      return (i <= 0 ? [l, ""] : [l.slice(0, i).trim(), l.slice(i + 1).trim()]) as [string, string];
+    });
+}
+
+export function draftToRequest(d: Draft): OutgoingRequest {
+  return {
+    method: d.method.trim().toUpperCase() || "GET",
+    url: d.url.trim(),
+    headers: parseHeaders(d.headers),
+    body: d.binaryBody ?? Array.from(new TextEncoder().encode(d.body)),
+  };
+}
+
+function selectNew(id: number | null) {
+  if (id === null) return;
+  // The batch carrying the new flow may still be in flight.
+  const trySelect = (left: number) => {
+    if (id in useFlows.getState().byId) useFlows.getState().select(id);
+    else if (left > 0) setTimeout(() => trySelect(left - 1), 100);
+  };
+  trySelect(10);
+}
+
+export async function repeat(id: number) {
+  try {
+    selectNew(await api.repeatFlow(id));
+    toast("Request repeated");
+  } catch (e) {
+    toast(`Repeat failed: ${errorMessage(e)}`);
+  }
+}
+
+export async function editAndRepeat(id: number) {
+  const d = await api.getFlow(id);
+  if (d) useUi.getState().openComposer(draftFromDetail(d));
+}
+
+/** Sends a composed request; throws so the composer can show the error. */
+export async function sendDraft(d: Draft) {
+  selectNew(await api.sendRequest(draftToRequest(d)));
+}
+
+export function compareWith(id: number) {
+  const { compareMark, markForCompare, openDiff } = useUi.getState();
+  if (compareMark === null || compareMark === id) {
+    markForCompare(id);
+    toast(`Marked #${id} for comparison`);
+  } else {
+    openDiff(compareMark, id);
+  }
+}
+
+const HAR = [{ name: "HTTP Archive", extensions: ["har"] }];
+const SESSION = [{ name: "Project Proxy Session", extensions: ["ppsession"] }];
+
+async function run(fn: () => Promise<string | null>) {
+  try {
+    const msg = await fn();
+    if (msg) toast(msg);
+  } catch (e) {
+    toast(errorMessage(e));
+  }
+}
+
+const plural = (n: number) => `${n} flow${n === 1 ? "" : "s"}`;
+
+export const files = {
+  exportHar: (ids?: number[]) =>
+    run(async () => {
+      const path = await save({ filters: HAR, defaultPath: "flows.har" });
+      return path ? `Exported ${plural(await api.exportHar(path, ids))}` : null;
+    }),
+  saveSession: () =>
+    run(async () => {
+      const path = await save({ filters: SESSION, defaultPath: "session.ppsession" });
+      return path ? `Saved ${plural(await api.saveSession(path))}` : null;
+    }),
+  /** Opens a session or HAR, replacing the current flows. */
+  open: () =>
+    run(async () => {
+      const path = await open({ filters: [...SESSION, ...HAR], multiple: false, directory: false });
+      return path ? `Opened ${plural(await api.importFlows(path, true))}` : null;
+    }),
+  importHar: () =>
+    run(async () => {
+      const path = await open({ filters: [...HAR, ...SESSION], multiple: false, directory: false });
+      return path ? `Imported ${plural(await api.importFlows(path, false))}` : null;
+    }),
+};
+
+/** Ids of the flows the table currently shows (filters applied). */
+export function visibleIds(): number[] {
+  const s = useFlows.getState();
+  const p = buildPredicate({ text: s.filter, methods: s.methods, statuses: s.statuses, scope: s.scope });
+  return s.order.filter((id) => p(s.byId[id]));
+}

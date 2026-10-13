@@ -1,10 +1,15 @@
 //! The proxy engine. Independent of Tauri so it can be tested on its own.
 
 pub mod ca;
+pub mod decode;
 pub mod guard;
+pub mod har;
 pub mod proxy;
+pub mod repeat;
+pub mod settings;
 pub mod store;
 pub mod sysproxy;
+pub mod throttle;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -22,7 +27,9 @@ use tokio::task::JoinHandle;
 
 use ca::CaBundle;
 use proxy::{FlowHandler, Recorder};
-use store::Store;
+use repeat::{OutgoingRequest, RepeatError};
+use settings::Settings;
+use store::{FlowData, FlowId, FlowMeta, Store};
 use sysproxy::{NetworkSetup, RestoreReport, SysProxyError};
 
 pub const DEFAULT_PORT: u16 = 9090;
@@ -45,6 +52,12 @@ pub enum EngineError {
     Tls(String),
     #[error("the proxy is not running")]
     NotRunning,
+    #[error(transparent)]
+    Repeat(#[from] RepeatError),
+    #[error(transparent)]
+    Har(#[from] har::HarError),
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
 }
 
 pub struct EngineConfig {
@@ -78,15 +91,18 @@ pub struct Engine {
     cfg: EngineConfig,
     pub store: Arc<Store>,
     pub ca: CaBundle,
+    settings: Arc<parking_lot::RwLock<Settings>>,
     running: Mutex<Option<Running>>,
 }
 
 impl Engine {
     pub fn new(cfg: EngineConfig) -> Result<Self, EngineError> {
         let ca = CaBundle::load_or_create(&cfg.data_dir.join("ca"))?;
+        let settings = Settings::load(&cfg.data_dir.join("settings.json"));
         Ok(Self {
             store: Arc::new(Store::new(cfg.buffer_size)),
             ca,
+            settings: Arc::new(parking_lot::RwLock::new(settings)),
             cfg,
             running: Mutex::new(None),
         })
@@ -94,6 +110,55 @@ impl Engine {
 
     pub fn data_dir(&self) -> &Path {
         &self.cfg.data_dir
+    }
+
+    pub fn settings(&self) -> Settings {
+        self.settings.read().clone()
+    }
+
+    /// Applies new settings to the running proxy at once and saves them.
+    pub fn set_settings(&self, settings: Settings) -> Result<(), EngineError> {
+        settings.save(&self.cfg.data_dir.join("settings.json"))?;
+        *self.settings.write() = settings;
+        Ok(())
+    }
+
+    /// Full copies of the given flows (all flows when `ids` is `None`).
+    pub fn snapshot(&self, ids: Option<&[FlowId]>) -> Vec<(FlowMeta, FlowData)> {
+        let ids: Vec<FlowId> = match ids {
+            Some(ids) => ids.to_vec(),
+            None => self
+                .store
+                .list(0, usize::MAX)
+                .0
+                .iter()
+                .map(|m| m.id)
+                .collect(),
+        };
+        ids.into_iter()
+            .filter_map(|id| self.store.get(id))
+            .collect()
+    }
+
+    /// Adds flows from a HAR or session file and returns how many. With
+    /// `replace`, existing flows are cleared first, but only once the file
+    /// has parsed, so a bad file doesn't wipe the list.
+    pub fn import(&self, bytes: &[u8], replace: bool) -> Result<usize, EngineError> {
+        let flows = har::import(har::parse(bytes)?);
+        if replace {
+            self.store.clear();
+        }
+        let n = flows.len();
+        for (meta, data) in flows {
+            self.store.add(meta, data);
+        }
+        Ok(n)
+    }
+
+    /// Sends a request through the running proxy so it is captured.
+    pub async fn send(&self, req: OutgoingRequest) -> Result<Option<FlowId>, EngineError> {
+        let addr = self.addr().await.ok_or(RepeatError::NotRunning)?;
+        Ok(repeat::send(&self.store, addr, &self.ca.cert_der, req).await?)
     }
 
     /// Starts listening on `listen_host:port` (port 0 picks a free one).
@@ -125,7 +190,11 @@ impl Engine {
             .enable_http2()
             .build();
 
-        let handler = FlowHandler::new(Recorder::new(self.store.clone(), self.cfg.body_cap));
+        let handler = FlowHandler::new(Recorder::new(
+            self.store.clone(),
+            self.cfg.body_cap,
+            self.settings.clone(),
+        ));
         let (tx, rx) = oneshot::channel::<()>();
         let proxy = Proxy::builder()
             .with_listener(listener)

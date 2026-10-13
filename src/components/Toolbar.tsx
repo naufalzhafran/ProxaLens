@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, errorMessage, type Status } from "../api";
-import { button } from "./ui";
+import { files, visibleIds } from "../lib/actions";
+import { emptyDraft, useSettings, useUi } from "../state/ui";
+import { THROTTLE_PRESETS } from "./SettingsDialog";
+import { button, ContextMenu, type MenuEntry } from "./ui";
 
 interface Props {
   status: Status | null;
@@ -12,6 +15,52 @@ interface Props {
 export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
   const [busy, setBusy] = useState(false);
   const [port, setPort] = useState("");
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null);
+  const settings = useSettings((s) => s.settings);
+  const { openComposer, openSettings } = useUi.getState();
+
+  useEffect(() => {
+    useSettings.getState().refresh().catch((e) => onError(errorMessage(e)));
+  }, [onError]);
+
+  function showMenu(e: React.MouseEvent, items: MenuEntry[]) {
+    const r = e.currentTarget.getBoundingClientRect();
+    setMenu({ x: r.left, y: r.bottom + 4, items });
+  }
+
+  const fileMenu: MenuEntry[] = [
+    { label: "Open Session or HAR… (⌘O)", onSelect: files.open },
+    { label: "Import HAR…", onSelect: files.importHar },
+    "separator",
+    { label: "Save Session… (⌘S)", onSelect: files.saveSession },
+    { label: "Export All as HAR…", onSelect: () => files.exportHar() },
+    { label: "Export Filtered as HAR…", onSelect: () => files.exportHar(visibleIds()) },
+  ];
+
+  const throttle = settings?.throttle;
+  const throttleLabel = !throttle?.enabled
+    ? "Throttle: Off"
+    : `Throttle: ${THROTTLE_PRESETS[throttle.preset]?.label ?? "Custom"}`;
+  function setThrottle(preset: string | null) {
+    if (!settings) return;
+    const p = preset ? THROTTLE_PRESETS[preset] : null;
+    const next = p
+      ? { ...settings.throttle, enabled: true, preset: preset!, bytesPerSec: p.bytesPerSec, latencyMs: p.latencyMs }
+      : { ...settings.throttle, enabled: false };
+    useSettings
+      .getState()
+      .save({ ...settings, throttle: next })
+      .catch((e) => onError(errorMessage(e)));
+  }
+  const throttleMenu: MenuEntry[] = [
+    { label: `${throttle?.enabled ? "" : "✓ "}Off`, onSelect: () => setThrottle(null) },
+    ...Object.entries(THROTTLE_PRESETS).map(([id, p]) => ({
+      label: `${throttle?.enabled && throttle.preset === id ? "✓ " : ""}${p.label}`,
+      onSelect: () => setThrottle(id),
+    })),
+    "separator",
+    { label: "Custom…", onSelect: () => openSettings("throttle") },
+  ];
 
   async function run(fn: () => Promise<Status>) {
     setBusy(true);
@@ -79,7 +128,25 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
         </button>
       )}
 
+      <div className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
+      <button className={button} onClick={(e) => showMenu(e, fileMenu)}>
+        File ▾
+      </button>
+      <button className={button} title="Compose a new request (⌘N)" onClick={() => openComposer(emptyDraft)}>
+        Compose
+      </button>
+      <button
+        className={`${button} ${throttle?.enabled ? "border-amber-400 text-amber-700 dark:text-amber-300" : ""}`}
+        disabled={!settings}
+        onClick={(e) => showMenu(e, throttleMenu)}
+      >
+        {throttleLabel} ▾
+      </button>
+
       <div className="ml-auto flex items-center gap-2">
+        <button className={button} title="SSL Proxying, Block and Allow lists, Throttle (⌘,)" onClick={() => openSettings("ssl")}>
+          Settings…
+        </button>
         {status && (
           <button
             className={`${button} ${status.caTrusted ? "" : "border-amber-400 text-amber-700 dark:text-amber-300"}`}
@@ -96,6 +163,7 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
           Clear
         </button>
       </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>
   );
 }

@@ -21,6 +21,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let engine = Arc::new(Engine::new(EngineConfig::new(&data_dir))?);
@@ -66,6 +67,13 @@ pub fn run() {
             commands::get_flow,
             commands::clear_flows,
             commands::subscribe_flows,
+            commands::get_settings,
+            commands::set_settings,
+            commands::export_har,
+            commands::save_session,
+            commands::import_flows,
+            commands::repeat_flow,
+            commands::send_request,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

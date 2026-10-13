@@ -11,9 +11,12 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::broadcast::error::TryRecvError;
 
+use crate::engine::repeat::OutgoingRequest;
+use crate::engine::settings::Settings;
 use crate::engine::store::{FlowEvent, FlowId, FlowMeta, WsDirection};
 use crate::engine::sysproxy::RestoreReport;
 use crate::engine::{DEFAULT_PORT, Engine, LOCALHOST, SysProxyController};
+use crate::engine::{decode, har};
 
 pub struct AppState {
     pub engine: Arc<Engine>,
@@ -209,27 +212,66 @@ pub fn clear_flows(state: State<'_, AppState>) {
 pub struct BodyView {
     size: usize,
     truncated: bool,
-    /// Set when the captured bytes are valid UTF-8.
+    /// Set when the (decoded) bytes are valid UTF-8.
     text: Option<String>,
     /// Set otherwise.
     base64: Option<String>,
+    /// The Content-Encoding that was removed for display ("gzip").
+    encoding: Option<String>,
+    /// Size on the wire, before decoding.
+    encoded_size: Option<usize>,
+    /// Why the body could not be decoded (it is shown raw instead).
+    decode_error: Option<String>,
 }
 
 impl BodyView {
     fn new(bytes: Vec<u8>, truncated: bool) -> Self {
         let size = bytes.len();
-        match String::from_utf8(bytes) {
-            Ok(text) => Self {
-                size,
-                truncated,
-                text: Some(text),
-                base64: None,
-            },
+        let (text, base64) = match String::from_utf8(bytes) {
+            Ok(text) => (Some(text), None),
+            Err(e) => (
+                None,
+                Some(base64::engine::general_purpose::STANDARD.encode(e.into_bytes())),
+            ),
+        };
+        Self {
+            size,
+            truncated,
+            text,
+            base64,
+            encoding: None,
+            encoded_size: None,
+            decode_error: None,
+        }
+    }
+
+    /// Removes any Content-Encoding named in `headers`.
+    fn decoded(
+        bytes: Vec<u8>,
+        truncated: bool,
+        headers: &[(String, String)],
+        already: bool,
+    ) -> Self {
+        let encoding = headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("content-encoding"))
+            .map(|(_, v)| v.as_str());
+        if already {
+            return Self::new(bytes, truncated);
+        }
+        match decode::decode(&bytes, encoding) {
+            Ok(None) => Self::new(bytes, truncated),
+            Ok(Some(d)) => {
+                let encoded_size = bytes.len();
+                Self {
+                    encoding: Some(d.encoding),
+                    encoded_size: Some(encoded_size),
+                    ..Self::new(d.bytes, truncated || d.partial)
+                }
+            }
             Err(e) => Self {
-                size,
-                truncated,
-                text: None,
-                base64: Some(base64::engine::general_purpose::STANDARD.encode(e.into_bytes())),
+                decode_error: Some(e.to_string()),
+                ..Self::new(bytes, truncated)
             },
         }
     }
@@ -259,12 +301,24 @@ pub struct FlowDetail {
 #[tauri::command]
 pub fn get_flow(state: State<'_, AppState>, id: FlowId) -> Option<FlowDetail> {
     let (meta, d) = state.engine.store.get(id)?;
+    let request_body = BodyView::decoded(
+        d.request_body,
+        d.request_body_truncated,
+        &d.request_headers,
+        d.bodies_decoded,
+    );
+    let response_body = BodyView::decoded(
+        d.response_body,
+        d.response_body_truncated,
+        &d.response_headers,
+        d.bodies_decoded,
+    );
     Some(FlowDetail {
         meta,
         request_headers: d.request_headers,
-        request_body: BodyView::new(d.request_body, d.request_body_truncated),
+        request_body,
         response_headers: d.response_headers,
-        response_body: BodyView::new(d.response_body, d.response_body_truncated),
+        response_body,
         ws_messages: d
             .ws_messages
             .into_iter()
@@ -280,6 +334,92 @@ pub fn get_flow(state: State<'_, AppState>, id: FlowId) -> Option<FlowDetail> {
             })
             .collect(),
     })
+}
+
+#[tauri::command]
+pub fn get_settings(state: State<'_, AppState>) -> Settings {
+    state.engine.settings()
+}
+
+#[tauri::command]
+pub fn set_settings(state: State<'_, AppState>, settings: Settings) -> CmdResult<Settings> {
+    state
+        .engine
+        .set_settings(settings)
+        .map_err(|e| e.to_string())?;
+    Ok(state.engine.settings())
+}
+
+/// Writes the given flows (all when `ids` is omitted) to a HAR file.
+#[tauri::command]
+pub async fn export_har(
+    state: State<'_, AppState>,
+    path: String,
+    ids: Option<Vec<FlowId>>,
+) -> CmdResult<usize> {
+    let engine = state.engine.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let flows = engine.snapshot(ids.as_deref());
+        std::fs::write(&path, har::to_json(&har::export(&flows))).map_err(|e| e.to_string())?;
+        Ok(flows.len())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Saves every flow to a session file (zstd-compressed HAR).
+#[tauri::command]
+pub async fn save_session(state: State<'_, AppState>, path: String) -> CmdResult<usize> {
+    let engine = state.engine.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let flows = engine.snapshot(None);
+        let bytes = har::to_session(&har::export(&flows)).map_err(|e| e.to_string())?;
+        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+        Ok(flows.len())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Adds the flows in a HAR or session file. With `replace`, the current
+/// flows are cleared first (opening a session).
+#[tauri::command]
+pub async fn import_flows(
+    state: State<'_, AppState>,
+    path: String,
+    replace: bool,
+) -> CmdResult<usize> {
+    let engine = state.engine.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        engine.import(&bytes, replace).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Sends a captured request again, unchanged.
+#[tauri::command]
+pub async fn repeat_flow(state: State<'_, AppState>, id: FlowId) -> CmdResult<Option<FlowId>> {
+    let (meta, data) = state
+        .engine
+        .store
+        .get(id)
+        .ok_or("That flow no longer exists.")?;
+    state
+        .engine
+        .send(OutgoingRequest::from_flow(&meta, &data))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Sends an edited or newly composed request.
+#[tauri::command]
+pub async fn send_request(
+    state: State<'_, AppState>,
+    request: OutgoingRequest,
+) -> CmdResult<Option<FlowId>> {
+    state.engine.send(request).await.map_err(|e| e.to_string())
 }
 
 #[derive(Clone, Serialize)]

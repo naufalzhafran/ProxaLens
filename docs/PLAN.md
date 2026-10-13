@@ -38,7 +38,21 @@ Update this checklist as work lands so any agent or device can pick up where the
     - The process column and "Apps" tree need process identification (Phase 6).
     - Compressed bodies show as binary until body decoding lands (Phase 3).
   - Tests: 28 vitest (the httpmon filter and cURL tests are ported). The UI was smoke-run in `tauri dev` with curl traffic; clicking through it and checking the tray menu still has to be done by hand.
-- [ ] Phase 3: Debug tools
+- [x] Phase 3: Debug tools
+  - Body decoding (`engine/decode.rs`): gzip/deflate (zlib or raw)/br/zstd and stacked encodings. Bodies are stored as received and decoded when `get_flow` asks. Truncated captures decode as a prefix, and output is capped at 50 MB. The inspector shows the encoding and the size on the wire.
+  - HAR 1.2 export/import (`engine/har.rs`, port of `har/har.go`), with decoded bodies and base64 for binary.
+    - A session (`.ppsession`) is a zstd-compressed HAR. Extra fields (state, error, client, truncation, WebSocket messages) go in a `_projectProxy` extension object.
+    - Open replaces the list (only once the file has parsed); Import appends.
+  - Repeat / Edit and Repeat / Compose (`engine/repeat.rs`): reqwest sends the request through our own proxy, trusting our CA, so it is captured; the new flow is found and selected.
+  - Diff (`src/lib/diff.ts`): a Myers line diff of request and response (start line, sorted headers, pretty-printed JSON body), after `diff/diff.go`. Use "Mark for Comparison", then "Compare with #N".
+  - Settings (`engine/settings.rs`, `settings.json`, applied live without a restart):
+    - SSL Proxying include/exclude, with exclude winning. Hosts that aren't decrypted are tunnelled and listed as a `tunnel` CONNECT row.
+    - Block list: 403 response, and CONNECT is refused; flow state `blocked`.
+    - Allow list: only matching hosts are recorded or decrypted.
+    - Host patterns are a port of `hostfilter` (`*.x.com` matches subdomains only).
+  - Throttle (`engine/throttle.rs`, port of `throttle/`): presets for 3G/4G/Wi-Fi bandwidth plus latency, or custom values, optionally per host. Quick picker in the toolbar.
+  - UI: a File menu (⌘O/⌘S), Compose (⌘N), Repeat (⌘R) and a Settings dialog (⌘,). File pickers come from `tauri-plugin-dialog`.
+  - Tests: 42 Rust unit, 14 Rust e2e (decoding, block, allow, SSL tunnel, throttle, repeat), 37 vitest. The app was smoke-run with gzip and brotli traffic; clicking through the new dialogs still has to be done by hand.
 - [ ] Phase 4: Rules & breakpoints
 - [ ] Phase 5: Scripting
 - [ ] Phase 6: Advanced
