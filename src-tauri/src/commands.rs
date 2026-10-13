@@ -23,6 +23,7 @@ use crate::engine::{decode, har};
 
 pub struct AppState {
     pub engine: Arc<Engine>,
+    pub mcp: Arc<crate::mcp::McpServer>,
     pub sysproxy: Arc<SysProxyController>,
     pub port: Mutex<u16>,
     pub last_error: Mutex<Option<String>>,
@@ -31,9 +32,14 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(engine: Arc<Engine>, sysproxy: Arc<SysProxyController>) -> Self {
+    pub fn new(
+        engine: Arc<Engine>,
+        sysproxy: Arc<SysProxyController>,
+        mcp: Arc<crate::mcp::McpServer>,
+    ) -> Self {
         Self {
             engine,
+            mcp,
             sysproxy,
             port: Mutex::new(DEFAULT_PORT),
             last_error: Mutex::new(None),
@@ -396,12 +402,53 @@ pub async fn set_settings(
         state.engine.stop().await;
         start(&state, addr.port()).await?;
     }
+    if before.mcp != settings.mcp {
+        sync_mcp(&state).await?;
+    }
     if before.system_proxy_mode != settings.system_proxy_mode && state.sysproxy.is_enabled() {
         apply_system_proxy(&state, false).await?;
         apply_system_proxy(&state, true).await?;
     }
     notify_status(&app).await;
     Ok(state.engine.settings())
+}
+
+/// Starts, stops or moves the MCP server to match the settings.
+pub async fn sync_mcp(state: &AppState) -> CmdResult<()> {
+    let cfg = state.engine.settings().mcp;
+    let running = state.mcp.addr().await;
+    if running.is_some_and(|a| !cfg.enabled || a.port() != cfg.port) {
+        state.mcp.stop().await;
+    }
+    if cfg.enabled {
+        state.mcp.start(cfg.port).await?;
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpInfo {
+    running: bool,
+    url: Option<String>,
+    token: String,
+    /// Command that registers the server with Claude Code.
+    claude_command: Option<String>,
+}
+
+#[tauri::command]
+pub async fn mcp_info(state: State<'_, AppState>) -> CmdResult<McpInfo> {
+    let addr = state.mcp.addr().await;
+    let url = addr.map(|a| format!("http://{a}/mcp"));
+    let token = state.mcp.token().to_string();
+    Ok(McpInfo {
+        running: addr.is_some(),
+        claude_command: url.as_ref().map(|u| {
+            format!("claude mcp add --transport http project-proxy {u} --header \"Authorization: Bearer {token}\"")
+        }),
+        url,
+        token,
+    })
 }
 
 #[derive(Serialize)]

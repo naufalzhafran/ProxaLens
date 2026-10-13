@@ -50,6 +50,9 @@ prost-reflect = { version = "0.16.5", features = ["serde"] }
 protox = "0.10.0"
 prost = "0.14.4"
 libproc = "0.14.11"
+rmcp = { version = "3.5.1", features = ["server", "macros", "transport-streamable-http-server"] }
+tower-service = "0.3"
+tokio-util = "0.7"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

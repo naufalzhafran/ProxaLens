@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod engine;
+pub mod mcp;
 mod tray;
 
 use std::sync::Arc;
@@ -46,7 +47,9 @@ pub fn run() {
             ));
             install_exit_hooks(marker);
 
-            let state = AppState::new(engine, sysproxy.clone());
+            let token = mcp::load_or_create_token(&data_dir)?;
+            let mcp_server = Arc::new(mcp::McpServer::new(engine.clone(), token));
+            let state = AppState::new(engine, sysproxy.clone(), mcp_server);
             // Layer 4: a previous run died with the system proxy still on.
             match sysproxy.recover_stale() {
                 Ok(Some(report)) if !report.restored.is_empty() => {
@@ -68,6 +71,9 @@ pub fn run() {
                 if let Err(e) = commands::start(&state, DEFAULT_PORT).await {
                     tracing::error!("proxy did not start: {e}");
                 }
+                if let Err(e) = commands::sync_mcp(&state).await {
+                    tracing::error!("MCP server did not start: {e}");
+                }
                 commands::notify_status(&handle).await;
             });
             Ok(())
@@ -85,6 +91,7 @@ pub fn run() {
             commands::subscribe_flows,
             commands::get_settings,
             commands::device_info,
+            commands::mcp_info,
             commands::install_simulator_cert,
             commands::set_settings,
             commands::export_har,

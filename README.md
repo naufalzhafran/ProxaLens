@@ -2,13 +2,27 @@
 
 A free, Proxyman-style HTTP/HTTPS debugging proxy for macOS. Built with Tauri v2, a Rust proxy engine ([hudsucker](https://github.com/omjadas/hudsucker)), and React + TypeScript.
 
-Status: early development. See [docs/PLAN.md](docs/PLAN.md) for the roadmap and progress.
+See [docs/PLAN.md](docs/PLAN.md) for the design, roadmap and progress.
 
-## What works today (Phases 0–1)
-- An HTTP/HTTPS MITM proxy on `127.0.0.1:9090` that starts with the app. HTTP/1.1 and HTTP/2 work, and WebSocket messages are captured.
-- A root CA generated per install. One click trusts it in your login keychain (macOS asks for your password).
-- A live, virtualized flow list with a filter, and a detail panel showing headers and bodies. Bodies over 5 MB are stored truncated but forwarded whole.
-- A system proxy toggle with crash-safe restore. Your original settings are saved before any change, and a watchdog process puts them back if the app is killed. See "System proxy crash safety" in the plan.
+## Features
+- **Capture:** an HTTP/HTTPS MITM proxy on `127.0.0.1:9090` that starts with the app. HTTP/1.1, HTTP/2 and WebSocket are supported. Bodies over 5 MB are stored truncated but forwarded whole.
+- **Certificate:** a root CA generated per install. One click trusts it in your login keychain (macOS asks for your password).
+- **Crash-safe system proxy:** "Proxy On" switches every network service, using manual HTTP/HTTPS settings or an automatic PAC URL. Your original settings are saved first, and a watchdog process puts them back if the app is killed.
+- **Inspector:** three panes (apps and domains, flows, inspector). Bodies can be shown as a JSON tree, text, hex, image or protobuf. Compressed bodies (gzip/br/zstd) are decoded. There's also a WebSocket message view, timings, and the app that made each request.
+- **Filters:** httpmon's filter syntax (`m:post s:4xx ct:json re:… app:chrome`), plus method and status chips.
+- **Debug tools:**
+  - Repeat, Edit and Repeat, and Compose.
+  - Compare two flows.
+  - HAR import/export, and saved sessions.
+  - Throttling.
+  - Copy as cURL.
+- **Rules:**
+  - Map Local, Map Remote, Rewrite and Block rules.
+  - Breakpoints that let you edit a request or response before it continues.
+  - SSL Proxying include/exclude, and Block and Allow lists.
+- **Scripts:** JavaScript `onRequest`/`onResponse` hooks in httpmon's file format, with an in-app editor (Monaco).
+- **Devices:** phones and tablets on your network (setup page with a QR code), and certificate install in iOS Simulators.
+- **MCP server:** lets agents such as Claude Code list, search and replay traffic, add mocks and manage scripts. It's off by default; turn it on under Settings → General.
 
 ## Development
 Requirements: Rust (via `rustup`), Node 20+, and Xcode command line tools.

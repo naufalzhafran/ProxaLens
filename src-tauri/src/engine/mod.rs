@@ -3,6 +3,7 @@
 pub mod breakpoint;
 pub mod ca;
 pub mod decode;
+pub mod filter;
 pub mod guard;
 pub mod har;
 pub mod procinfo;

@@ -80,7 +80,23 @@ Update this checklist as work lands so any agent or device can pick up where the
   - UI: a Scripts window (⌘J, lazy-loaded) with a list (enable toggle, categories, header errors), a locally bundled Monaco editor (no CDN) with `ctx` type definitions for autocomplete, ⌘S to save, templates, and a console for `console.log` output and script errors.
   - Tests: 14 script unit tests (ported from httpmon's scripting, glob, header, loader, respondWith and breakpoint tests), plus an e2e test. Totals: 74 Rust unit, 22 Rust e2e, 42 vitest.
   - `dompurify` is pinned to ≥3.4.17 through `overrides`, because Monaco 0.57 ships a version with an advisory.
-- [ ] Phase 6: Advanced
+- [x] Phase 6: Advanced (all items except the two below)
+  - Protobuf / gRPC (`engine/proto.rs`): schema-less wire decoding (field numbers as keys) ported from httpmon's `bodydecoder`; gRPC, gRPC-Web and gRPC-Web-text unframing; named decoding from `.proto` files per host pattern (`protox` + `prost-reflect`, compiled lazily). Settings → Protobuf. Bodies are decoded for display only (scripts don't re-encode protobuf).
+  - Process identification (`engine/procinfo.rs`): libproc maps loopback client ports to PIDs and app names (the outermost `.app` bundle). One scan serves every connection waiting at that moment, and results are cached for 30 s. The UI has an App column, an Apps section in the sidebar and an `app:` filter (the Phase 2 deferred item).
+  - WebSocket inspector: sent/received filter, search, ping/pong toggle and a message detail pane. Also an e2e test for WebSocket capture (the Phase 1 gap).
+  - Devices:
+    - The proxy answers requests addressed to itself (`http://<mac-ip>:9090/` or `http://proxy.local/`) with a setup page, the CA as `.pem`/`.cer`, and `proxy.pac`.
+    - Settings → "Allow devices on the network" listens on 0.0.0.0 (off by default) and restarts the proxy.
+    - The Devices dialog shows LAN setup URLs with a QR code and installs the CA into booted iOS Simulators (`xcrun simctl keychain booted add-root-cert`).
+  - PAC auto-config mode (Settings → General): `sysproxy.rs` snapshots and restores each service's auto-proxy URL, and a restore only touches services still pointing at our PAC URL. The marker's `mode` field defaults to manual, so old markers still restore and the watchdog handles both modes.
+  - MCP server (`src/mcp.rs`, `rmcp` Streamable HTTP on 127.0.0.1:9091, off by default). A bearer token in `mcp-token` (mode 600), ported from httpmon's `auth.go`.
+    - Tools: list/search/count/get requests, export HAR, replay or compose, set/get throttle, mock_response/remove_mock (Map Local rules), and script list/get/create/toggle/delete.
+    - The filter syntax is now also in Rust (`engine/filter.rs`).
+    - Settings → General shows the `claude mcp add …` command.
+  - Not done:
+    - **Privileged `SMAppService` helper:** it needs a Developer ID–signed app and helper, which went with the DMG release (dropped from Phase 3). Proxy changes keep using `networksetup`, with the admin-prompt fallback and the watchdog.
+    - **Windows support:** still "later" (WinINet proxy, `certutil` trust store).
+  - Tests: 89 Rust unit, 25 Rust e2e, 45 vitest.
 
 ## Assessment of httpmon
 

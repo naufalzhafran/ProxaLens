@@ -25,6 +25,24 @@ pub struct Settings {
     /// Point the system at the proxy with HTTP/HTTPS proxy settings or an
     /// automatic configuration (PAC) URL.
     pub system_proxy_mode: super::sysproxy::Mode,
+    pub mcp: Mcp,
+}
+
+/// The MCP server for LLM agents (see `src/mcp.rs`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Mcp {
+    pub enabled: bool,
+    pub port: u16,
+}
+
+impl Default for Mcp {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: 9091,
+        }
+    }
 }
 
 /// Which HTTPS hosts are decrypted. Hosts that aren't are tunnelled as-is

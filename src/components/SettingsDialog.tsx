@@ -1,8 +1,8 @@
 // SSL Proxying, Block List, Allow List and Throttle settings.
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { api, errorMessage, type HostList, type Settings } from "../api";
-import { useToast } from "../lib/clipboard";
+import { api, errorMessage, type HostList, type McpInfo, type Settings } from "../api";
+import { copy, useToast } from "../lib/clipboard";
 import { useSettings, useUi, type SettingsTab } from "../state/ui";
 import { button, input, Modal, primaryButton, Tabs } from "./ui";
 
@@ -98,6 +98,7 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
                   </span>
                 </label>
               ))}
+              <McpSection settings={settings} setSettings={setSettings} />
             </div>
           )}
           {tab === "ssl" && (
@@ -289,6 +290,50 @@ function ProtobufEditor({ settings, setSettings }: { settings: Settings; setSett
       <button className={`${button} self-start`} onClick={() => set([...list, { hosts: "*", paths: [] }])}>
         + Add .proto source
       </button>
+    </div>
+  );
+}
+
+function McpSection({ settings, setSettings }: { settings: Settings; setSettings: (s: Settings) => void }) {
+  const [info, setInfo] = useState<McpInfo | null>(null);
+  useEffect(() => {
+    api.mcpInfo().then(setInfo).catch(() => {});
+  }, []);
+  const mcp = settings.mcp;
+  return (
+    <div className="mt-2 flex flex-col gap-2 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+      <h3 className="font-medium">MCP server for AI agents</h3>
+      <Help>
+        Lets agents such as Claude Code list, search and replay captured requests, add mocks and manage scripts. It listens
+        on 127.0.0.1 only and needs the token below.
+      </Help>
+      <div className="flex items-center gap-4">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={mcp.enabled} onChange={(e) => setSettings({ ...settings, mcp: { ...mcp, enabled: e.target.checked } })} />
+          Enabled
+        </label>
+        <label className="flex items-center gap-2">
+          Port
+          <input
+            type="number"
+            className={`${input} w-24`}
+            value={mcp.port}
+            onChange={(e) => setSettings({ ...settings, mcp: { ...mcp, port: Number(e.target.value) || 9091 } })}
+          />
+        </label>
+      </div>
+      {info?.claudeCommand ? (
+        <div className="flex items-center gap-2">
+          <code className="selectable min-w-0 flex-1 truncate rounded bg-neutral-100 px-2 py-1 font-mono text-[11px] dark:bg-neutral-800" title={info.claudeCommand}>
+            {info.claudeCommand}
+          </code>
+          <button className={button} onClick={() => copy(info.claudeCommand!, "command")}>
+            Copy
+          </button>
+        </div>
+      ) : (
+        <p className="text-neutral-500">Save with “Enabled” on to start it and get the connection command.</p>
+      )}
     </div>
   );
 }

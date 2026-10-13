@@ -97,6 +97,14 @@ export interface Settings {
   protobuf: { hosts: string; paths: string[] }[];
   allowLan: boolean;
   systemProxyMode: "manual" | "pac";
+  mcp: { enabled: boolean; port: number };
+}
+
+export interface McpInfo {
+  running: boolean;
+  url: string | null;
+  token: string;
+  claudeCommand: string | null;
 }
 
 export interface DeviceInfo {
@@ -225,6 +233,7 @@ export const api = {
   },
   getSettings: () => invoke<Settings>("get_settings"),
   deviceInfo: () => invoke<DeviceInfo>("device_info"),
+  mcpInfo: () => invoke<McpInfo>("mcp_info"),
   installSimulatorCert: () => invoke<string>("install_simulator_cert"),
   setSettings: (settings: Settings) => invoke<Settings>("set_settings", { settings }),
   exportHar: (path: string, ids?: number[]) => invoke<number>("export_har", { path, ids }),
