@@ -1,14 +1,25 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage, type RestoreReport, type Status } from "./api";
-import { FlowDetailPanel } from "./components/FlowDetailPanel";
+import { FilterBar } from "./components/FilterBar";
 import { FlowTable } from "./components/FlowTable";
+import { Inspector } from "./components/Inspector";
+import { Onboarding, shouldShowOnboarding } from "./components/Onboarding";
+import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
+import { useResizable } from "./components/ui";
+import { useToast } from "./lib/clipboard";
 import { MAX_FLOWS, useFlows } from "./state/flows";
 
 export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<RestoreReport | null>(null);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const onboardingChecked = useRef(false);
+  const filterRef = useRef<HTMLInputElement>(null);
+  const toast = useToast((s) => s.message);
+  const sidebar = useResizable(200, 140, 400, "x", "sidebarWidth");
+  const table = useResizable(640, 320, 2000, "x", "tableWidth");
 
   const reload = useCallback(async () => {
     const { flows } = await api.listFlows(0, MAX_FLOWS);
@@ -28,23 +39,53 @@ export default function App() {
   }, [reload]);
 
   // The proxy auto-starts in the background; poll status until it settles,
-  // and refresh periodically to catch certificate trust changes.
+  // refresh periodically to catch certificate trust changes, and refresh at
+  // once when the tray menu changes something.
   useEffect(() => {
     let alive = true;
-    const tick = () => api.getStatus().then((s) => alive && setStatus(s)).catch(() => {});
+    const tick = () =>
+      api
+        .getStatus()
+        .then((s) => {
+          if (!alive) return;
+          setStatus(s);
+          if (!onboardingChecked.current) {
+            onboardingChecked.current = true;
+            if (shouldShowOnboarding(s)) setSetupOpen(true);
+          }
+        })
+        .catch(() => {});
     tick();
     const t = setInterval(tick, 3000);
+    const unlisten = api.onStatusChanged(tick);
     return () => {
       alive = false;
       clearInterval(t);
+      unlisten.then((f) => f()).catch(() => {});
     };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey) return;
+      if (e.key === "f") {
+        e.preventDefault();
+        filterRef.current?.focus();
+        filterRef.current?.select();
+      } else if (e.key === "k") {
+        e.preventDefault();
+        api.clearFlows().catch((err) => setError(errorMessage(err)));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const shownError = error ?? status?.error ?? null;
 
   return (
     <div className="flex h-full flex-col">
-      <Toolbar status={status} setStatus={setStatus} onError={setError} />
+      <Toolbar status={status} setStatus={setStatus} onError={setError} onSetup={() => setSetupOpen(true)} />
       {notice && (
         <Banner tone="info" onClose={() => setNotice(null)}>
           Restored your network proxy settings from a previous session ({notice.restored.join(", ")}).
@@ -55,20 +96,36 @@ export default function App() {
           {shownError}
         </Banner>
       )}
-      {status && !status.caTrusted && (
+      {status && !status.caTrusted && !setupOpen && (
         <Banner tone="warn">
-          HTTPS traffic can’t be decrypted until the Project Proxy certificate is trusted. Click “Install
-          certificate…”.
+          HTTPS traffic can’t be decrypted until the Project Proxy certificate is trusted.{" "}
+          <button className="underline" onClick={() => setSetupOpen(true)}>
+            Set up…
+          </button>
         </Banner>
       )}
       <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-[3] flex-col border-r border-neutral-200 dark:border-neutral-800">
+        <div style={{ width: sidebar.size }} className="flex shrink-0 flex-col bg-neutral-50 dark:bg-neutral-900/50">
+          <Sidebar />
+        </div>
+        {sidebar.handle}
+        <div style={{ width: table.size }} className="flex min-w-0 shrink-0 flex-col">
+          <FilterBar ref={filterRef} />
           <FlowTable />
         </div>
-        <div className="flex min-w-0 flex-[2] flex-col">
-          <FlowDetailPanel />
+        {table.handle}
+        <div className="flex min-w-[280px] flex-1 flex-col">
+          <Inspector />
         </div>
       </div>
+      {setupOpen && status && (
+        <Onboarding status={status} setStatus={setStatus} onClose={() => setSetupOpen(false)} />
+      )}
+      {toast && (
+        <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md bg-neutral-900 px-3 py-1.5 text-xs text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

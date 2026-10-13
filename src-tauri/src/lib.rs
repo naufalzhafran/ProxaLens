@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod engine;
+mod tray;
 
 use std::sync::Arc;
 
@@ -19,6 +20,7 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let engine = Arc::new(Engine::new(EngineConfig::new(&data_dir))?);
@@ -39,6 +41,9 @@ pub fn run() {
                 Err(e) => tracing::error!("could not restore previous proxy settings: {e}"),
             }
             app.manage(state);
+            if let Err(e) = tray::install(app.handle()) {
+                tracing::warn!("could not create the menu bar icon: {e}");
+            }
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -46,6 +51,7 @@ pub fn run() {
                 if let Err(e) = commands::start(&state, DEFAULT_PORT).await {
                     tracing::error!("proxy did not start: {e}");
                 }
+                commands::notify_status(&handle).await;
             });
             Ok(())
         })

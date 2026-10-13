@@ -24,3 +24,11 @@ export function statusColor(status: number | null): string {
   if (status >= 300) return "text-sky-500";
   return "text-emerald-600 dark:text-emerald-400";
 }
+
+/** "application/json; charset=utf-8" → "json", "image/svg+xml" → "svg". */
+export function shortContentType(ct: string | null): string {
+  if (!ct) return "";
+  const mime = ct.split(";")[0].trim().toLowerCase();
+  const sub = (mime.split("/")[1] ?? mime).replace(/^x-/, "");
+  return sub.endsWith("+json") ? "json" : sub.split("+")[0];
+}

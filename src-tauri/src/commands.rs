@@ -7,8 +7,8 @@ use std::time::Duration;
 use base64::Engine as _;
 use parking_lot::Mutex;
 use serde::Serialize;
-use tauri::State;
 use tauri::ipc::Channel;
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::broadcast::error::TryRecvError;
 
 use crate::engine::store::{FlowEvent, FlowId, FlowMeta, WsDirection};
@@ -94,13 +94,27 @@ pub async fn start(state: &AppState, port: u16) -> CmdResult<()> {
     }
 }
 
+/// Tells the tray and the UI that the proxy or system proxy state changed.
+pub async fn notify_status(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let addr = state.engine.addr().await;
+    crate::tray::refresh(app, addr, state.sysproxy.is_enabled());
+    let _ = app.emit("status-changed", ());
+}
+
 #[tauri::command]
-pub async fn start_proxy(state: State<'_, AppState>, port: Option<u16>) -> CmdResult<Status> {
+pub async fn start_proxy(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    port: Option<u16>,
+) -> CmdResult<Status> {
     let port = port.unwrap_or_else(|| *state.port.lock());
     if state.engine.addr().await.is_some_and(|a| a.port() != port) {
         stop(&state).await?;
     }
-    start(&state, port).await?;
+    let result = start(&state, port).await;
+    notify_status(&app).await;
+    result?;
     Ok(status(&state).await)
 }
 
@@ -116,13 +130,28 @@ async fn stop(state: &AppState) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub async fn stop_proxy(state: State<'_, AppState>) -> CmdResult<Status> {
-    stop(&state).await?;
+pub async fn stop_proxy(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Status> {
+    let result = stop(&state).await;
+    notify_status(&app).await;
+    result?;
     Ok(status(&state).await)
 }
 
 #[tauri::command]
-pub async fn set_system_proxy(state: State<'_, AppState>, enabled: bool) -> CmdResult<Status> {
+pub async fn set_system_proxy(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> CmdResult<Status> {
+    let result = apply_system_proxy(&state, enabled).await;
+    notify_status(&app).await;
+    result?;
+    Ok(status(&state).await)
+}
+
+/// Points every network service at the running proxy, or restores the
+/// previous settings. Shared by the UI command and the tray menu.
+pub async fn apply_system_proxy(state: &AppState, enabled: bool) -> CmdResult<()> {
     let sp = state.sysproxy.clone();
     if enabled {
         let Some(addr) = state.engine.addr().await else {
@@ -138,7 +167,7 @@ pub async fn set_system_proxy(state: State<'_, AppState>, enabled: bool) -> CmdR
             .map_err(|e| e.to_string())?
             .map_err(|e| e.to_string())?;
     }
-    Ok(status(&state).await)
+    Ok(())
 }
 
 #[tauri::command]

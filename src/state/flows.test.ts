@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { FlowMeta } from "../api";
-import { formatBytes, formatDuration } from "../lib/format";
-import { applyBatch, fromList, matchesFilter, MAX_FLOWS } from "./flows";
+import { formatBytes, formatDuration, shortContentType } from "../lib/format";
+import { groupByDomain } from "../components/Sidebar";
+import { applyBatch, fromList, MAX_FLOWS, toggle } from "./flows";
 
 function flow(id: number, over: Partial<FlowMeta> = {}): FlowMeta {
   return {
@@ -54,13 +55,25 @@ describe("applyBatch", () => {
   });
 });
 
-describe("matchesFilter", () => {
-  it("matches every whitespace-separated term", () => {
-    const f = flow(7, { method: "POST", status: 404 });
-    expect(matchesFilter(f, "")).toBe(true);
-    expect(matchesFilter(f, "post example")).toBe(true);
-    expect(matchesFilter(f, "404")).toBe(true);
-    expect(matchesFilter(f, "post 500")).toBe(false);
+describe("toggle", () => {
+  it("adds missing items and removes present ones", () => {
+    expect(toggle(["GET"], "POST")).toEqual(["GET", "POST"]);
+    expect(toggle(["GET", "POST"], "GET")).toEqual(["POST"]);
+  });
+});
+
+describe("groupByDomain", () => {
+  it("groups hosts under their registrable domain with counts", () => {
+    const { order, byId } = fromList([
+      flow(1, { host: "api.example.com" }),
+      flow(2, { host: "example.com" }),
+      flow(3, { host: "api.example.com" }),
+      flow(4, { host: "cdn.other.io" }),
+    ]);
+    expect(groupByDomain(order, byId)).toEqual([
+      { domain: "example.com", count: 3, hosts: [["api.example.com", 2], ["example.com", 1]] },
+      { domain: "other.io", count: 1, hosts: [["cdn.other.io", 1]] },
+    ]);
   });
 });
 
@@ -70,5 +83,9 @@ describe("format", () => {
     expect(formatBytes(2048)).toBe("2.0 KB");
     expect(formatDuration(null)).toBe("");
     expect(formatDuration(1500)).toBe("1.50 s");
+    expect(shortContentType("application/json; charset=utf-8")).toBe("json");
+    expect(shortContentType("application/vnd.api+json")).toBe("json");
+    expect(shortContentType("image/svg+xml")).toBe("svg");
+    expect(shortContentType("application/x-www-form-urlencoded")).toBe("www-form-urlencoded");
   });
 });

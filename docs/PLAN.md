@@ -23,7 +23,21 @@ Update this checklist as work lands so any agent or device can pick up where the
       - The system proxy toggle switches every service on and off.
       - `kill -9` of the running app restores the proxy through the watchdog.
       - A relaunch restores and shows the notice.
-- [ ] Phase 2: Core UI
+- [x] Phase 2: Core UI
+  - Three-pane layout with resizable panes:
+    - Sidebar: all traffic, pinned domains (stored in localStorage), and a domain → host tree. `baseDomain` in `src/lib/http.ts` is a heuristic, not the Public Suffix List.
+    - Flow table: adds a Type column, tints failed and in-progress rows, and supports Home/End keys.
+    - Inspector: request (Headers/Query/Cookies/Body/Raw) on top, response (Headers/Cookies/Body/Raw/Messages/Timing) below. The body viewer has JSON tree, text, hex and image preview modes.
+  - Filter bar: a port of httpmon's quick and advanced syntax (`src/lib/filter.ts`: `s:`, `m:`, `ct:`, `re:`, `!` negation, plus long aliases), with method and status chips. Filtering runs client-side over `FlowMeta`, so there's no Rust `filter.rs` yet (an MCP server will need one in Phase 6).
+  - Context menu: copy URL, cURL (port of `tui/curl.go`, with shell escaping), request or response body; pin a domain; show only a host. Copying uses `tauri-plugin-clipboard-manager`.
+  - Onboarding wizard (certificate, then system proxy). It opens on first launch while the CA is untrusted, and again from the toolbar.
+  - Toolbar "Proxy On/Off" switch. Shortcuts: ⌘F focuses the filter, ⌘K clears flows.
+  - Tray (menu bar) icon (`src-tauri/src/tray.rs`): status line, system proxy toggle, show window, clear, quit. A `status-changed` event keeps the UI in sync.
+  - Not adopted, by decision: shadcn/ui (plain Tailwind primitives in `components/ui.tsx` are enough) and Monaco for read-only bodies (too heavy; it moves to the Phase 5 script editor).
+  - Not yet done:
+    - The process column and "Apps" tree need process identification (Phase 6).
+    - Compressed bodies show as binary until body decoding lands (Phase 3).
+  - Tests: 28 vitest (the httpmon filter and cURL tests are ported). The UI was smoke-run in `tauri dev` with curl traffic; clicking through it and checking the tray menu still has to be done by hand.
 - [ ] Phase 3: Debug tools, MVP release
 - [ ] Phase 4: Rules & breakpoints
 - [ ] Phase 5: Scripting

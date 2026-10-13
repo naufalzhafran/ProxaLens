@@ -1,5 +1,6 @@
 // Typed wrappers around the Rust commands in src-tauri/src/commands.rs.
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export type FlowState = "inProgress" | "completed" | "failed" | "webSocket";
 
@@ -86,6 +87,8 @@ export const api = {
     channel.onmessage = onBatch;
     return invoke<void>("subscribe_flows", { onEvent: channel });
   },
+  /** Fires when the tray (or another command) changes proxy state. */
+  onStatusChanged: (cb: () => void) => listen("status-changed", cb),
 };
 
 export function errorMessage(e: unknown): string {

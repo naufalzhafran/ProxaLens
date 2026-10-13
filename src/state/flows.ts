@@ -1,18 +1,28 @@
 // Client-side mirror of the engine's flow store, kept in sync by batches.
 import { create } from "zustand";
 import type { FlowBatch, FlowMeta } from "../api";
+import type { Scope, StatusClass } from "../lib/filter";
 
 export const MAX_FLOWS = 10_000;
+const PINNED_KEY = "pinnedDomains";
 
 export interface FlowsState {
   order: number[];
   byId: Record<number, FlowMeta>;
   selectedId: number | null;
   filter: string;
+  methods: string[];
+  statuses: StatusClass[];
+  scope: Scope;
+  pinned: string[];
   applyBatch: (b: FlowBatch) => void;
   reset: (flows: FlowMeta[]) => void;
   select: (id: number | null) => void;
   setFilter: (f: string) => void;
+  toggleMethod: (m: string) => void;
+  toggleStatus: (c: StatusClass) => void;
+  setScope: (s: Scope) => void;
+  togglePin: (domain: string) => void;
 }
 
 export const useFlows = create<FlowsState>((set) => ({
@@ -20,11 +30,41 @@ export const useFlows = create<FlowsState>((set) => ({
   byId: {},
   selectedId: null,
   filter: "",
+  methods: [],
+  statuses: [],
+  scope: null,
+  pinned: loadPinned(),
   applyBatch: (b) => set((s) => applyBatch(s, b)),
   reset: (flows) => set(() => fromList(flows)),
   select: (id) => set({ selectedId: id }),
   setFilter: (filter) => set({ filter }),
+  toggleMethod: (m) => set((s) => ({ methods: toggle(s.methods, m) })),
+  toggleStatus: (c) => set((s) => ({ statuses: toggle(s.statuses, c) })),
+  setScope: (scope) => set({ scope }),
+  togglePin: (domain) =>
+    set((s) => {
+      const pinned = toggle(s.pinned, domain);
+      try {
+        localStorage.setItem(PINNED_KEY, JSON.stringify(pinned));
+      } catch {
+        /* storage unavailable; pins last for this session */
+      }
+      return { pinned };
+    }),
 }));
+
+export function toggle<T>(list: T[], item: T): T[] {
+  return list.includes(item) ? list.filter((x) => x !== item) : [...list, item];
+}
+
+function loadPinned(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(PINNED_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 type Data = Pick<FlowsState, "order" | "byId" | "selectedId">;
 
@@ -54,15 +94,4 @@ export function applyBatch(s: Data, b: FlowBatch): Partial<Data> {
   }
   const selectedId = s.selectedId !== null && s.selectedId in byId ? s.selectedId : null;
   return { order, byId, selectedId };
-}
-
-/** Case-insensitive match against method, host, path and status. */
-export function matchesFilter(f: FlowMeta, filter: string): boolean {
-  const q = filter.trim().toLowerCase();
-  if (!q) return true;
-  return q
-    .split(/\s+/)
-    .every((term) =>
-      [f.method, f.host, f.path, f.status?.toString() ?? ""].some((v) => v.toLowerCase().includes(term)),
-    );
 }
