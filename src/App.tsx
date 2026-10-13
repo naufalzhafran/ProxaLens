@@ -93,9 +93,12 @@ export default function App() {
       const ui = useUi.getState();
       const selected = useFlows.getState().selectedId;
       const actions: Record<string, () => void> = {
+        // Find in the body of the inspector pane last clicked, else filter flows.
         f: () => {
-          filterRef.current?.focus();
-          filterRef.current?.select();
+          const scope = document.activeElement?.closest("[data-find-scope]");
+          const target = scope?.querySelector<HTMLInputElement>("[data-find]") ?? filterRef.current;
+          target?.focus();
+          target?.select();
         },
         k: () => clearFlows().catch((err) => setError(errorMessage(err))),
         o: () => files.open(),

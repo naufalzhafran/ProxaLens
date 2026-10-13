@@ -1,10 +1,12 @@
 // Right pane: request on top, response below, each with tabs.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, Copy as CopyIcon } from "lucide-react";
 import { api, errorMessage, type BodyView, type FlowDetail, type WsMessageView } from "../api";
 import { editAndRepeat, repeat } from "../lib/actions";
 import { copy } from "../lib/clipboard";
 import { formatCurl } from "../lib/curl";
 import { formatBytes, formatDuration, formatTime, statusColor } from "../lib/format";
+import { applyMatches, findMatches, langFor, MATCH_LIMIT, tokenize, type Lang } from "../lib/highlight";
 import {
   bodyBytes,
   bodyKind,
@@ -20,7 +22,7 @@ import {
 } from "../lib/http";
 import { useFlows } from "../state/flows";
 import { JsonTree } from "./JsonTree";
-import { button, Chip, Tabs, useResizable } from "./ui";
+import { button, Chip, ContextMenu, input, Tabs, useResizable } from "./ui";
 
 export function Inspector() {
   const selectedId = useFlows((s) => s.selectedId);
@@ -46,7 +48,7 @@ export function Inspector() {
   }, [selectedId, meta]);
 
   if (selectedId === null) {
-    return <div className="flex flex-1 items-center justify-center text-neutral-500">Select a flow</div>;
+    return <EmptyState />;
   }
   if (error) return <div className="p-4 text-red-500">{error}</div>;
   if (!detail || detail.meta.id !== selectedId) return null;
@@ -127,7 +129,7 @@ function RequestPane({ detail }: { detail: FlowDetail }) {
           { id: "raw", label: "Raw" },
         ]}
       />
-      <div className="selectable min-h-0 flex-1 overflow-auto p-2 text-xs">
+      <div data-find-scope tabIndex={-1} className="selectable min-h-0 flex-1 overflow-auto p-2 text-xs outline-none">
         {tab === "headers" && <KeyValues rows={detail.requestHeaders} empty="No headers" />}
         {tab === "query" && <KeyValues rows={query} empty="No query parameters" />}
         {tab === "cookies" && <Cookies cookies={cookies} />}
@@ -161,7 +163,7 @@ function ResponsePane({ detail }: { detail: FlowDetail }) {
           { id: "timing", label: "Timing" },
         ]}
       />
-      <div className="selectable min-h-0 flex-1 overflow-auto p-2 text-xs">
+      <div data-find-scope tabIndex={-1} className="selectable min-h-0 flex-1 overflow-auto p-2 text-xs outline-none">
         {m.state === "inProgress" && shown !== "timing" && (
           <p className="mb-2 text-neutral-500">Waiting for the response…</p>
         )}
@@ -196,39 +198,123 @@ function pathOf(url: string): string {
 function KeyValues({ rows, empty }: { rows: [string, string][]; empty: string }) {
   if (!rows.length) return <p className="text-neutral-500">{empty}</p>;
   return (
-    <table className="w-full font-mono">
-      <tbody>
-        {rows.map(([k, v], i) => (
-          <tr key={i} className="align-top odd:bg-neutral-50 dark:odd:bg-neutral-900">
-            <td className="w-1/3 py-0.5 pr-3 pl-1 text-neutral-500">{k}</td>
-            <td className="break-all py-0.5">{v}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <CopyRows
+      rows={rows.map(([k, v]) => ({
+        name: k,
+        value: v,
+        line: `${k}: ${v}`,
+        cell: <span className="break-all">{v}</span>,
+      }))}
+      lineLabel="Copy as “Name: value”"
+    />
   );
 }
 
 function Cookies({ cookies }: { cookies: Cookie[] }) {
   if (!cookies.length) return <p className="text-neutral-500">No cookies</p>;
   return (
-    <table className="w-full font-mono">
-      <tbody>
-        {cookies.map((c, i) => (
-          <tr key={i} className="align-top odd:bg-neutral-50 dark:odd:bg-neutral-900">
-            <td className="w-1/4 py-0.5 pr-3 pl-1 text-neutral-500">{c.name}</td>
-            <td className="break-all py-0.5">
-              {c.value}
-              {c.attrs.length > 0 && (
-                <div className="text-neutral-500">
-                  {c.attrs.map(([k, v]) => (v ? `${k}=${v}` : k)).join("; ")}
-                </div>
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <CopyRows
+      rows={cookies.map((c) => ({
+        name: c.name,
+        value: c.value,
+        line: `${c.name}=${c.value}`,
+        cell: (
+          <span className="break-all">
+            {c.value}
+            {c.attrs.length > 0 && (
+              <span className="block text-neutral-500">{c.attrs.map(([k, v]) => (v ? `${k}=${v}` : k)).join("; ")}</span>
+            )}
+          </span>
+        ),
+      }))}
+      lineLabel="Copy as “name=value”"
+    />
+  );
+}
+
+interface CopyRow {
+  name: string;
+  value: string;
+  line: string;
+  cell: React.ReactNode;
+}
+
+/** Name/value rows with a copy button on hover and a copy context menu. */
+function CopyRows({ rows, lineLabel }: { rows: CopyRow[]; lineLabel: string }) {
+  const [menu, setMenu] = useState<{ x: number; y: number; row: CopyRow } | null>(null);
+  return (
+    <>
+      <table className="w-full font-mono">
+        <tbody>
+          {rows.map((r, i) => (
+            <tr
+              key={i}
+              className="group align-top odd:bg-neutral-50 dark:odd:bg-neutral-900"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ x: e.clientX, y: e.clientY, row: r });
+              }}
+            >
+              <td className="w-1/3 py-0.5 pr-3 pl-1 break-all text-neutral-500">{r.name}</td>
+              <td className="py-0.5">{r.cell}</td>
+              <td className="w-6 py-0.5 text-right">
+                <button
+                  aria-label={`Copy ${r.name}`}
+                  title="Copy value"
+                  className="invisible rounded p-0.5 text-neutral-400 group-hover:visible hover:text-neutral-800 focus-visible:visible dark:hover:text-neutral-200"
+                  onClick={() => copy(r.value, r.name)}
+                >
+                  <CopyIcon size={12} />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: "Copy Value", onSelect: () => copy(menu.row.value, menu.row.name) },
+            { label: "Copy Name", onSelect: () => copy(menu.row.name, "name") },
+            { label: lineLabel, onSelect: () => copy(menu.row.line, menu.row.name) },
+          ]}
+        />
+      )}
+    </>
+  );
+}
+
+const SHORTCUTS: [string, string][] = [
+  ["⌘F", "Filter flows, or find in the body you clicked"],
+  ["↑ ↓", "Move through flows; ⇧ extends the selection"],
+  ["⌘-click, ⇧-click", "Select several flows"],
+  ["⌘R / ⌘N", "Repeat the selected flow / compose a request"],
+  ["⌫", "Remove the selected flows"],
+  ["⌘K", "Clear all flows"],
+  ["⌘L / ⌘J", "Rules / scripts"],
+  ["⌘O / ⌘S", "Open / save a session"],
+  ["⌘,", "Settings"],
+];
+
+function EmptyState() {
+  return (
+    <div className="flex flex-1 items-center justify-center p-6 text-neutral-500">
+      <div className="max-w-xs">
+        <p className="mb-3 text-sm text-neutral-700 dark:text-neutral-300">Select a flow to see its request and response.</p>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          {SHORTCUTS.map(([keys, what]) => (
+            <div key={keys} className="contents">
+              <dt className="font-mono text-neutral-700 dark:text-neutral-300">{keys}</dt>
+              <dd>{what}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3">Right-click a flow for copy, repeat, rules and more.</p>
+      </div>
+    </div>
   );
 }
 
@@ -249,25 +335,82 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
   const proto = useMemo(() => (body.protobuf ? JSON.parse(body.protobuf.json) : null), [body.protobuf]);
   const bytes = useMemo(() => (mode === "hex" ? bodyBytes(body) : null), [mode, body]);
 
+  // Find works on text; searching a tree shows it as text so every match is visible.
+  const [query, setQuery] = useState("");
+  const [current, setCurrent] = useState(0);
+  const searchable = kind === "json" || kind === "text" || !!body.protobuf;
+  const shown: BodyMode = query && (mode === "tree" || mode === "protobuf") ? "text" : mode;
+  const text = useMemo(() => {
+    if (shown !== "text") return "";
+    if (mode === "protobuf") return JSON.stringify(proto, null, 2);
+    return kind === "json" ? JSON.stringify(parsed, null, 2) : (body.text ?? "");
+  }, [shown, mode, kind, parsed, proto, body.text]);
+  const lang: Lang = langFor(contentType, kind === "json" || mode === "protobuf");
+  const ranges = useMemo(() => findMatches(text, query), [text, query]);
+  useEffect(() => setCurrent(0), [query, body]);
+  const step = (by: number) => {
+    if (ranges.length) setCurrent((c) => (c + by + ranges.length) % ranges.length);
+  };
+
   if (kind === "empty") return <p className="text-neutral-500">No body</p>;
 
   return (
     <div>
-      <div className="mb-2 flex items-center gap-2 text-neutral-500">
-        <span>
+      <div className="sticky -top-2 z-[1] -mx-2 mb-1 flex flex-wrap items-center gap-2 bg-white px-2 py-1 text-neutral-500 dark:bg-neutral-950">
+        <span className="min-w-0 flex-1">
           {formatBytes(body.size)}
           {body.encoding && body.encodedSize != null && ` · ${body.encoding}, ${formatBytes(body.encodedSize)} on the wire`}
           {body.truncated && " (truncated at capture limit)"}
           {kind === "binary" && " · binary"}
           {body.decodeError && <span className="text-amber-600"> · {body.decodeError}; showing raw bytes</span>}
         </span>
+        {searchable && (
+          <div className="flex items-center gap-0.5">
+            <input
+              data-find
+              aria-label="Find in body"
+              placeholder="Find"
+              spellCheck={false}
+              className={`${input} w-32 font-sans`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") step(e.shiftKey ? -1 : 1);
+                if (e.key === "Escape") setQuery("");
+              }}
+            />
+            {query && (
+              <span className="w-12 text-right tabular-nums" aria-live="polite">
+                {ranges.length ? `${current + 1}/${ranges.length}${ranges.length >= MATCH_LIMIT ? "+" : ""}` : "0/0"}
+              </span>
+            )}
+            <button
+              aria-label="Previous match (⇧↩)"
+              title="Previous match (⇧↩)"
+              disabled={!ranges.length}
+              className="rounded p-0.5 disabled:opacity-40"
+              onClick={() => step(-1)}
+            >
+              <ChevronUp size={14} />
+            </button>
+            <button
+              aria-label="Next match (↩)"
+              title="Next match (↩)"
+              disabled={!ranges.length}
+              className="rounded p-0.5 disabled:opacity-40"
+              onClick={() => step(1)}
+            >
+              <ChevronDown size={14} />
+            </button>
+          </div>
+        )}
         {modes.length > 1 && (
-          <div className="ml-auto flex overflow-hidden rounded-md border border-neutral-300 dark:border-neutral-700">
+          <div className="flex overflow-hidden rounded-md border border-neutral-300 dark:border-neutral-700">
             {modes.map((md) => (
               <button
                 key={md}
                 onClick={() => setPreferred(md)}
-                className={`px-2 py-0.5 capitalize ${md === mode ? "bg-neutral-200 text-neutral-900 dark:bg-neutral-700 dark:text-neutral-100" : ""}`}
+                className={`px-2 py-0.5 capitalize ${md === shown ? "bg-neutral-200 text-neutral-900 dark:bg-neutral-700 dark:text-neutral-100" : ""}`}
               >
                 {md}
               </button>
@@ -275,7 +418,7 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
           </div>
         )}
       </div>
-      {mode === "protobuf" && body.protobuf && (
+      {shown === "protobuf" && body.protobuf && (
         <>
           <p className="mb-1 text-neutral-500">
             {body.protobuf.message
@@ -290,8 +433,8 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
           <JsonTree value={proto} />
         </>
       )}
-      {mode === "tree" && <JsonTree value={parsed} />}
-      {mode === "text" && <Pre text={kind === "json" ? JSON.stringify(parsed, null, 2) : (body.text ?? "")} />}
+      {shown === "tree" && <JsonTree value={parsed} />}
+      {shown === "text" && <Code text={text} lang={lang} ranges={ranges} current={current} />}
       {mode === "preview" && contentType && (
         <img
           alt="Response body"
@@ -310,6 +453,51 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
         </>
       )}
     </div>
+  );
+}
+
+const TOKEN_CLASS: Record<string, string> = {
+  key: "text-purple-700 dark:text-purple-300",
+  string: "text-emerald-700 dark:text-emerald-400",
+  number: "text-sky-700 dark:text-sky-400",
+  literal: "text-orange-600 dark:text-orange-400",
+  tag: "text-sky-700 dark:text-sky-400",
+  attr: "text-purple-700 dark:text-purple-300",
+  comment: "italic text-neutral-400",
+};
+
+/** Highlighted text with find matches; the current match is scrolled into view. */
+function Code({ text, lang, ranges, current }: { text: string; lang: Lang; ranges: [number, number][]; current: number }) {
+  const ref = useRef<HTMLPreElement>(null);
+  const tokens = useMemo(() => tokenize(text, lang), [text, lang]);
+  const segments = useMemo(() => applyMatches(tokens, ranges), [tokens, ranges]);
+  useEffect(() => {
+    ref.current?.querySelector(`[data-match="${current}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [current, segments]);
+  return (
+    <pre ref={ref} className="whitespace-pre-wrap break-all font-mono text-xs">
+      {segments.map((seg, i) => {
+        const cls = seg.token ? TOKEN_CLASS[seg.token] : undefined;
+        if (seg.match === undefined) {
+          return cls ? (
+            <span key={i} className={cls}>
+              {seg.text}
+            </span>
+          ) : (
+            seg.text
+          );
+        }
+        return (
+          <mark
+            key={i}
+            data-match={seg.match}
+            className={`rounded-sm text-inherit ${seg.match === current ? "bg-amber-400 dark:bg-amber-500" : "bg-amber-200/70 dark:bg-amber-700/60"} ${cls ?? ""}`}
+          >
+            {seg.text}
+          </mark>
+        );
+      })}
+    </pre>
   );
 }
 
