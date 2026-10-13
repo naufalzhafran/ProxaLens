@@ -225,6 +225,8 @@ pub struct BodyView {
     encoded_size: Option<usize>,
     /// Why the body could not be decoded (it is shown raw instead).
     decode_error: Option<String>,
+    /// Protobuf / gRPC bodies decoded to JSON.
+    protobuf: Option<crate::engine::proto::ProtoView>,
 }
 
 impl BodyView {
@@ -245,6 +247,7 @@ impl BodyView {
             encoding: None,
             encoded_size: None,
             decode_error: None,
+            protobuf: None,
         }
     }
 
@@ -304,6 +307,31 @@ pub struct FlowDetail {
 #[tauri::command]
 pub fn get_flow(state: State<'_, AppState>, id: FlowId) -> Option<FlowDetail> {
     let (meta, d) = state.engine.store.get(id)?;
+    let engine = &state.engine;
+    let sources = engine.settings().protobuf;
+    let proto = |headers: &[(String, String)], body: &BodyView, request: bool| {
+        let ct = headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+            .map(|(_, v)| v.as_str())?;
+        if !crate::engine::proto::is_protobuf(ct) || body.size == 0 {
+            return None;
+        }
+        let bytes = match (&body.text, &body.base64) {
+            (Some(t), _) => t.as_bytes().to_vec(),
+            (_, Some(b)) => base64::engine::general_purpose::STANDARD.decode(b).ok()?,
+            _ => return None,
+        };
+        crate::engine::proto::decode_body(
+            ct,
+            &bytes,
+            &meta.host,
+            &meta.path,
+            request,
+            &sources,
+            &engine.proto,
+        )
+    };
     let request_body = BodyView::decoded(
         d.request_body,
         d.request_body_truncated,
@@ -316,6 +344,10 @@ pub fn get_flow(state: State<'_, AppState>, id: FlowId) -> Option<FlowDetail> {
         &d.response_headers,
         d.bodies_decoded,
     );
+    let mut request_body = request_body;
+    let mut response_body = response_body;
+    request_body.protobuf = proto(&d.request_headers, &request_body, true);
+    response_body.protobuf = proto(&d.response_headers, &response_body, false);
     Some(FlowDetail {
         meta,
         request_headers: d.request_headers,

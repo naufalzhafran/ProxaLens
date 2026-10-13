@@ -37,6 +37,8 @@ export interface BodyView {
   /** Size on the wire before decoding. */
   encodedSize?: number | null;
   decodeError?: string | null;
+  /** Protobuf / gRPC body decoded to JSON. */
+  protobuf?: { json: string; message: string | null; notes: string[] } | null;
 }
 
 export interface WsMessageView {
@@ -89,6 +91,7 @@ export interface Settings {
     latencyMs: number;
     hosts: string[];
   };
+  protobuf: { hosts: string; paths: string[] }[];
 }
 
 export interface OutgoingRequest {

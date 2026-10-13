@@ -5,6 +5,7 @@ pub mod ca;
 pub mod decode;
 pub mod guard;
 pub mod har;
+pub mod proto;
 pub mod proxy;
 pub mod repeat;
 pub mod rules;
@@ -104,6 +105,7 @@ pub struct Engine {
     rules: Arc<parking_lot::RwLock<Arc<CompiledRules>>>,
     pub breakpoints: Arc<Breakpoints>,
     pub scripts: Arc<Scripts>,
+    pub proto: proto::Registries,
     running: Mutex<Option<Running>>,
 }
 
@@ -124,6 +126,7 @@ impl Engine {
                 cfg.data_dir.join("scripts"),
                 script::DEFAULT_TIMEOUT,
             )),
+            proto: proto::Registries::default(),
             cfg,
             running: Mutex::new(None),
         })

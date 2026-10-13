@@ -17,6 +17,8 @@ pub struct Settings {
     pub block_list: HostList,
     pub allow_list: HostList,
     pub throttle: Throttle,
+    /// `.proto` files for decoding protobuf / gRPC bodies by name.
+    pub protobuf: Vec<super::proto::ProtoSource>,
 }
 
 /// Which HTTPS hosts are decrypted. Hosts that aren't are tunnelled as-is

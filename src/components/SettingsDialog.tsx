@@ -1,5 +1,6 @@
 // SSL Proxying, Block List, Allow List and Throttle settings.
 import { useEffect, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { api, errorMessage, type HostList, type Settings } from "../api";
 import { useToast } from "../lib/clipboard";
 import { useSettings, useUi, type SettingsTab } from "../state/ui";
@@ -69,6 +70,7 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
           { id: "block", label: "Block List" },
           { id: "allow", label: "Allow List" },
           { id: "throttle", label: "Throttle" },
+          { id: "protobuf", label: "Protobuf" },
         ]}
       />
       {settings && (
@@ -107,6 +109,7 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
             />
           )}
           {tab === "throttle" && <ThrottleEditor settings={settings} setSettings={setSettings} />}
+          {tab === "protobuf" && <ProtobufEditor settings={settings} setSettings={setSettings} />}
         </div>
       )}
     </Modal>
@@ -124,6 +127,10 @@ function Code({ children }: { children: React.ReactNode }) {
 function HostsField({ label, hosts, onChange }: { label: string; hosts: string[]; onChange: (h: string[]) => void }) {
   // Keep the raw text while typing; parse it into hosts on every change.
   const [text, setText] = useState(hosts.join("\n"));
+  // Follow changes made outside the textarea (e.g. "Add files…").
+  useEffect(() => {
+    if (lines(text).join("\n") !== hosts.join("\n")) setText(hosts.join("\n"));
+  }, [hosts]);
   return (
     <label className="flex flex-col gap-1">
       <span className="text-neutral-500">{label}</span>
@@ -207,6 +214,56 @@ function ThrottleEditor({ settings, setSettings }: { settings: Settings; setSett
         </label>
       </div>
       <HostsField label="Only throttle these hosts (leave empty for all)" hosts={t.hosts} onChange={(hosts) => update({ hosts })} />
+    </div>
+  );
+}
+
+function ProtobufEditor({ settings, setSettings }: { settings: Settings; setSettings: (s: Settings) => void }) {
+  const list = settings.protobuf;
+  const set = (protobuf: Settings["protobuf"]) => setSettings({ ...settings, protobuf });
+  return (
+    <div className="flex flex-col gap-3">
+      <Help>
+        Protobuf and gRPC bodies are always shown with field numbers. Add your <Code>.proto</Code> files (or folders of
+        them) to decode gRPC calls by name. The first entry whose host pattern matches is used.
+      </Help>
+      {list.map((entry, i) => (
+        <div key={i} className="flex flex-col gap-2 rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+          <div className="flex items-end gap-2">
+            <label className="flex flex-1 flex-col gap-1">
+              <span className="text-neutral-500">Hosts</span>
+              <input
+                className={input}
+                spellCheck={false}
+                placeholder="*.example.com or *"
+                value={entry.hosts}
+                onChange={(e) => set(list.map((x, j) => (j === i ? { ...x, hosts: e.target.value } : x)))}
+              />
+            </label>
+            <button className={button} onClick={() => set(list.filter((_, j) => j !== i))}>
+              Remove
+            </button>
+          </div>
+          <HostsField
+            label=".proto files or folders, one per line"
+            hosts={entry.paths}
+            onChange={(paths) => set(list.map((x, j) => (j === i ? { ...x, paths } : x)))}
+          />
+          <button
+            className={`${button} self-start`}
+            onClick={async () => {
+              const picked = await open({ multiple: true, directory: false, filters: [{ name: "Protocol Buffers", extensions: ["proto"] }] });
+              const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+              if (paths.length) set(list.map((x, j) => (j === i ? { ...x, paths: [...x.paths, ...paths] } : x)));
+            }}
+          >
+            Add files…
+          </button>
+        </div>
+      ))}
+      <button className={`${button} self-start`} onClick={() => set([...list, { hosts: "*", paths: [] }])}>
+        + Add .proto source
+      </button>
     </div>
   );
 }

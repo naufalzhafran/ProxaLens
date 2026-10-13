@@ -9,7 +9,7 @@ export interface RulesView {
   add?: { id: string } & Record<string, unknown>;
 }
 
-export type SettingsTab = "ssl" | "block" | "allow" | "throttle";
+export type SettingsTab = "ssl" | "block" | "allow" | "throttle" | "protobuf";
 
 export interface Draft {
   method: string;

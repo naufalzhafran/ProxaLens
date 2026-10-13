@@ -228,19 +228,21 @@ function Cookies({ cookies }: { cookies: Cookie[] }) {
   );
 }
 
-type BodyMode = "tree" | "text" | "hex" | "preview";
+type BodyMode = "protobuf" | "tree" | "text" | "hex" | "preview";
 const HEX_PAGE = 64 * 1024;
 
 export function BodyViewer({ body, contentType }: { body: BodyView; contentType: string | null }) {
   const kind = useMemo(() => bodyKind(body, contentType), [body, contentType]);
-  const modes: BodyMode[] =
+  const base: BodyMode[] =
     kind === "json" ? ["tree", "text", "hex"] : kind === "image" ? ["preview", "hex"] : kind === "text" ? ["text", "hex"] : ["hex"];
+  const modes: BodyMode[] = body.protobuf ? ["protobuf", ...base.filter((m) => m !== "tree")] : base;
   const [preferred, setPreferred] = useState<BodyMode | null>(null);
   const [hexLimit, setHexLimit] = useState(HEX_PAGE);
   const mode = preferred && modes.includes(preferred) ? preferred : modes[0];
   useEffect(() => setHexLimit(HEX_PAGE), [body]);
 
   const parsed = useMemo(() => (kind === "json" ? JSON.parse(body.text!) : null), [kind, body.text]);
+  const proto = useMemo(() => (body.protobuf ? JSON.parse(body.protobuf.json) : null), [body.protobuf]);
   const bytes = useMemo(() => (mode === "hex" ? bodyBytes(body) : null), [mode, body]);
 
   if (kind === "empty") return <p className="text-neutral-500">No body</p>;
@@ -269,6 +271,21 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
           </div>
         )}
       </div>
+      {mode === "protobuf" && body.protobuf && (
+        <>
+          <p className="mb-1 text-neutral-500">
+            {body.protobuf.message
+              ? `Decoded as ${body.protobuf.message}`
+              : "Decoded without a schema (field numbers as keys). Add .proto files under Settings → Protobuf for names."}
+          </p>
+          {body.protobuf.notes.map((n, i) => (
+            <p key={i} className="mb-1 text-amber-600">
+              {n}
+            </p>
+          ))}
+          <JsonTree value={proto} />
+        </>
+      )}
       {mode === "tree" && <JsonTree value={parsed} />}
       {mode === "text" && <Pre text={kind === "json" ? JSON.stringify(parsed, null, 2) : (body.text ?? "")} />}
       {mode === "preview" && contentType && (
