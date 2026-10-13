@@ -1,6 +1,6 @@
 // Which modal is open, plus the flow marked for comparison.
 import { create } from "zustand";
-import { api, type Settings } from "../api";
+import { api, type Rules, type ScriptInfo, type Settings } from "../api";
 import type { RuleKind } from "../lib/rules";
 
 /** The Rules dialog: which tab, and optionally a new rule to start editing. */
@@ -58,6 +58,22 @@ export const useUi = create<UiState>((set) => ({
   openSettings: (settingsTab) => set({ settingsTab }),
   markForCompare: (compareMark) => set({ compareMark }),
   close: () => set({ composer: null, diff: null, settingsTab: null, rules: null, scriptsOpen: false, devicesOpen: false }),
+}));
+
+/** Rules and scripts, cached for the toolbar's "active" badges. */
+export const useTools = create<{
+  rules: Rules | null;
+  scripts: ScriptInfo[];
+  setRules: (r: Rules) => void;
+  refresh: () => Promise<void>;
+}>((set) => ({
+  rules: null,
+  scripts: [],
+  setRules: (rules) => set({ rules }),
+  refresh: async () => {
+    const [rules, { scripts }] = await Promise.all([api.getRules(), api.listScripts()]);
+    set({ rules, scripts });
+  },
 }));
 
 /** The engine's settings, cached for the toolbar. */

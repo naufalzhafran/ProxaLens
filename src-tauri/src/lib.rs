@@ -9,7 +9,7 @@ use tauri::{Manager, RunEvent};
 
 use commands::AppState;
 use engine::sysproxy::RealNetworkSetup;
-use engine::{DEFAULT_PORT, Engine, EngineConfig, SysProxyController};
+use engine::{Engine, EngineConfig, SysProxyController};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -68,7 +68,7 @@ pub fn run() {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = handle.state::<AppState>();
-                if let Err(e) = commands::start(&state, DEFAULT_PORT).await {
+                if let Err(e) = commands::start(&state, state.engine.settings().port).await {
                     tracing::error!("proxy did not start: {e}");
                 }
                 if let Err(e) = commands::sync_mcp(&state).await {
@@ -88,6 +88,8 @@ pub fn run() {
             commands::list_flows,
             commands::get_flow,
             commands::clear_flows,
+            commands::remove_flows,
+            commands::set_recording,
             commands::subscribe_flows,
             commands::get_settings,
             commands::device_info,

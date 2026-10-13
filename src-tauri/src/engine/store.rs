@@ -3,8 +3,8 @@
 //! Port of httpmon's `internal/store`. The list view only needs [`FlowMeta`];
 //! headers and bodies live in [`FlowData`] and are fetched lazily.
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -103,6 +103,7 @@ pub struct FlowData {
 pub enum FlowEvent {
     Upsert(FlowMeta),
     Cleared,
+    Removed(Vec<FlowId>),
 }
 
 struct Entry {
@@ -118,6 +119,9 @@ struct Inner {
 pub struct Store {
     capacity: usize,
     next_id: AtomicU64,
+    /// Off while recording is paused: traffic still flows, rules still
+    /// apply, but nothing new is kept.
+    recording: AtomicBool,
     inner: RwLock<Inner>,
     events: broadcast::Sender<FlowEvent>,
 }
@@ -128,6 +132,7 @@ impl Store {
         Self {
             capacity: capacity.max(1),
             next_id: AtomicU64::new(1),
+            recording: AtomicBool::new(true),
             inner: RwLock::new(Inner {
                 order: VecDeque::new(),
                 flows: HashMap::new(),
@@ -141,9 +146,14 @@ impl Store {
     }
 
     /// Inserts a new flow, evicting the oldest one when full. The `id` field
-    /// of `meta` is overwritten with a freshly allocated id.
+    /// of `meta` is overwritten with a freshly allocated id. While recording
+    /// is paused the id is allocated but nothing is kept, so later
+    /// `update`s for it do nothing, as for an evicted flow.
     pub fn add(&self, mut meta: FlowMeta, data: FlowData) -> FlowId {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        if !self.is_recording() {
+            return id;
+        }
         meta.id = id;
         {
             let mut inner = self.inner.write();
@@ -207,6 +217,36 @@ impl Store {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    pub fn is_recording(&self) -> bool {
+        self.recording.load(Ordering::Relaxed)
+    }
+
+    pub fn set_recording(&self, on: bool) {
+        self.recording.store(on, Ordering::Relaxed);
+    }
+
+    /// Removes the given flows; returns how many were stored.
+    pub fn remove(&self, ids: &[FlowId]) -> usize {
+        let removed: Vec<FlowId> = {
+            let mut inner = self.inner.write();
+            let removed: Vec<FlowId> = ids
+                .iter()
+                .copied()
+                .filter(|id| inner.flows.remove(id).is_some())
+                .collect();
+            if !removed.is_empty() {
+                let gone: HashSet<FlowId> = removed.iter().copied().collect();
+                inner.order.retain(|id| !gone.contains(id));
+            }
+            removed
+        };
+        let n = removed.len();
+        if n > 0 {
+            let _ = self.events.send(FlowEvent::Removed(removed));
+        }
+        n
     }
 
     pub fn clear(&self) {
@@ -293,5 +333,48 @@ mod tests {
         assert!(matches!(rx.try_recv().unwrap(), FlowEvent::Cleared));
         assert!(rx.try_recv().is_err());
         assert_eq!(s.len(), 0);
+    }
+
+    #[test]
+    fn paused_recording_keeps_nothing_new() {
+        let s = Store::new(10);
+        let mut rx = s.subscribe();
+        let a = s.add(test_meta("/a"), FlowData::default());
+        s.set_recording(false);
+        let b = s.add(test_meta("/b"), FlowData::default());
+        s.update(b, |m, _| m.status = Some(200));
+        assert!(b > a, "ids keep increasing while paused");
+        assert!(s.get(b).is_none());
+        assert_eq!(s.len(), 1);
+        // Flows from before the pause still update.
+        s.update(a, |m, _| m.status = Some(204));
+        assert_eq!(s.get(a).unwrap().0.status, Some(204));
+        s.set_recording(true);
+        let c = s.add(test_meta("/c"), FlowData::default());
+        assert!(s.get(c).is_some());
+        let mut seen = Vec::new();
+        while let Ok(FlowEvent::Upsert(m)) = rx.try_recv() {
+            seen.push(m.id);
+        }
+        assert_eq!(seen, vec![a, a, c]);
+    }
+
+    #[test]
+    fn removes_flows_and_reports_them() {
+        let s = Store::new(10);
+        let ids: Vec<FlowId> = ["/a", "/b", "/c"]
+            .iter()
+            .map(|p| s.add(test_meta(p), FlowData::default()))
+            .collect();
+        let mut rx = s.subscribe();
+        assert_eq!(s.remove(&[ids[0], ids[2], 999]), 2);
+        assert_eq!(
+            s.list(0, 10).0.iter().map(|m| m.id).collect::<Vec<_>>(),
+            vec![ids[1]]
+        );
+        assert!(matches!(rx.try_recv(), Ok(FlowEvent::Removed(r)) if r == vec![ids[0], ids[2]]));
+        // Removing nothing sends nothing.
+        assert_eq!(s.remove(&[ids[0]]), 0);
+        assert!(rx.try_recv().is_err());
     }
 }

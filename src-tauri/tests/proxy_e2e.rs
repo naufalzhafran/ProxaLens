@@ -576,6 +576,50 @@ async fn map_local_answers_without_the_server() {
 }
 
 #[tokio::test]
+async fn paused_recording_forwards_and_applies_rules_but_keeps_nothing() {
+    let up = http_upstream().await;
+    let h = harness(vec![], None).await;
+    h.engine
+        .set_rules(Rules {
+            map_local: vec![MapLocal {
+                matcher: matching("http://nowhere.invalid/mock"),
+                status: 200,
+                body: "mocked".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+
+    h.engine.store.set_recording(false);
+    let res = h
+        .client
+        .get(format!("http://{up}/hello"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.text().await.unwrap(), r#"{"hello":"world"}"#);
+    let res = h
+        .client
+        .get("http://nowhere.invalid/mock")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.text().await.unwrap(), "mocked");
+    assert!(h.engine.store.is_empty());
+
+    h.engine.store.set_recording(true);
+    h.client
+        .get(format!("http://{up}/hello"))
+        .send()
+        .await
+        .unwrap();
+    let f = h.wait_done("/hello").await;
+    assert_eq!(f.status, Some(200));
+    assert_eq!(h.engine.store.len(), 1);
+}
+
+#[tokio::test]
 async fn map_remote_sends_the_request_elsewhere() {
     let up = http_upstream().await;
     let h = harness(vec![], None).await;

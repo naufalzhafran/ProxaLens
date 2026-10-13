@@ -68,7 +68,7 @@ describe("Onboarding", () => {
     const { Onboarding } = await import("./Onboarding");
     const status = {
       running: true, addr: "127.0.0.1:9090", port: 9090, error: null, caTrusted: false, caCertPath: "/ca.pem",
-      caFingerprint: "AB:CD", systemProxyEnabled: false, dataDir: "/d",
+      caFingerprint: "AB:CD", systemProxyEnabled: false, dataDir: "/d", recording: true,
     };
     const html = renderToStaticMarkup(<Onboarding status={status} setStatus={() => {}} onClose={() => {}} />);
     expect(html).toContain('aria-label="Set up Project Proxy"');

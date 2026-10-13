@@ -131,6 +131,17 @@ export default function App() {
           {shownError}
         </Banner>
       )}
+      {status && !status.recording && (
+        <Banner tone="warn">
+          Recording is paused. Traffic still goes through the proxy and rules still apply, but nothing new is listed.{" "}
+          <button
+            className="underline"
+            onClick={() => api.setRecording(true).then(setStatus).catch((e) => setError(errorMessage(e)))}
+          >
+            Resume
+          </button>
+        </Banner>
+      )}
       {status && !status.caTrusted && !setupOpen && (
         <Banner tone="warn">
           HTTPS traffic can’t be decrypted until the Project Proxy certificate is trusted.{" "}

@@ -10,9 +10,11 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
+    /// The port the proxy listens on.
+    pub port: u16,
     pub ssl_proxying: SslProxying,
     pub block_list: HostList,
     pub allow_list: HostList,
@@ -26,6 +28,22 @@ pub struct Settings {
     /// automatic configuration (PAC) URL.
     pub system_proxy_mode: super::sysproxy::Mode,
     pub mcp: Mcp,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            port: super::DEFAULT_PORT,
+            ssl_proxying: SslProxying::default(),
+            block_list: HostList::default(),
+            allow_list: HostList::default(),
+            throttle: Throttle::default(),
+            protobuf: Vec::new(),
+            allow_lan: false,
+            system_proxy_mode: super::sysproxy::Mode::default(),
+            mcp: Mcp::default(),
+        }
+    }
 }
 
 /// The MCP server for LLM agents (see `src/mcp.rs`).

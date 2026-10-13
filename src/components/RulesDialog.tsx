@@ -15,7 +15,7 @@ import { parseHeaders } from "../lib/actions";
 import { useToast } from "../lib/clipboard";
 import { guardedClose } from "../lib/confirm";
 import { actionsFor, newRule, RULE_KINDS, ruleSummary, type RuleKind } from "../lib/rules";
-import { useUi, type RulesView } from "../state/ui";
+import { useTools, useUi, type RulesView } from "../state/ui";
 import { button, input, Modal, primaryButton, Tabs } from "./ui";
 
 type AnyRule = Rules[RuleKind][number];
@@ -75,7 +75,7 @@ export function RulesDialog({ view }: { view: RulesView }) {
     setBusy(true);
     setError(null);
     try {
-      await api.setRules(rules!);
+      useTools.getState().setRules(await api.setRules(rules!));
       useToast.getState().show("Rules saved");
       close();
     } catch (e) {

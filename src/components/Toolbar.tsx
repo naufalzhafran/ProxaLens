@@ -1,9 +1,24 @@
 import { useEffect, useState } from "react";
+import {
+  ChevronDown,
+  Code,
+  FolderOpen,
+  Gauge,
+  Pause,
+  Play,
+  Send,
+  Settings as SettingsIcon,
+  ShieldAlert,
+  Smartphone,
+  Trash2,
+  Workflow,
+} from "lucide-react";
 import { api, errorMessage, type Status } from "../api";
 import { clearFlows, files, visibleIds } from "../lib/actions";
-import { emptyDraft, useSettings, useUi } from "../state/ui";
+import { activeRules } from "../lib/rules";
+import { emptyDraft, useSettings, useTools, useUi } from "../state/ui";
 import { THROTTLE_PRESETS } from "./SettingsDialog";
-import { button, ContextMenu, type MenuEntry } from "./ui";
+import { button, ContextMenu, IconButton, Popover, primaryButton, useAnchor, type MenuEntry } from "./ui";
 
 interface Props {
   status: Status | null;
@@ -12,15 +27,29 @@ interface Props {
   onSetup: () => void;
 }
 
+const ICON = 14;
+
 export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
   const [busy, setBusy] = useState(false);
-  const [port, setPort] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null);
+  const details = useAnchor();
   const settings = useSettings((s) => s.settings);
+  const rules = useTools((s) => s.rules);
+  const scripts = useTools((s) => s.scripts);
   const { openComposer, openSettings, openRules, openScripts, openDevices } = useUi.getState();
 
   useEffect(() => {
     useSettings.getState().refresh().catch((e) => onError(errorMessage(e)));
+    // Rules can also change through the MCP server while the app is in the
+    // background, so look again whenever the window comes back.
+    const refresh = () => useTools.getState().refresh().catch(() => {});
+    refresh();
+    const unlisten = api.onScriptsChanged(refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      unlisten.then((f) => f()).catch(() => {});
+    };
   }, [onError]);
 
   function showMenu(e: React.MouseEvent, items: MenuEntry[]) {
@@ -38,9 +67,7 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
   ];
 
   const throttle = settings?.throttle;
-  const throttleLabel = !throttle?.enabled
-    ? "Throttle: Off"
-    : `Throttle: ${THROTTLE_PRESETS[throttle.preset]?.label ?? "Custom"}`;
+  const throttleName = throttle?.enabled ? (THROTTLE_PRESETS[throttle.preset]?.label ?? "Custom") : null;
   function setThrottle(preset: string | null) {
     if (!settings) return;
     const p = preset ? THROTTLE_PRESETS[preset] : null;
@@ -53,9 +80,10 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
       .catch((e) => onError(errorMessage(e)));
   }
   const throttleMenu: MenuEntry[] = [
-    { label: `${throttle?.enabled ? "" : "✓ "}Off`, onSelect: () => setThrottle(null) },
+    { label: "Off", checked: !throttle?.enabled, onSelect: () => setThrottle(null) },
     ...Object.entries(THROTTLE_PRESETS).map(([id, p]) => ({
-      label: `${throttle?.enabled && throttle.preset === id ? "✓ " : ""}${p.label}`,
+      label: p.label,
+      checked: !!throttle?.enabled && throttle.preset === id,
       onSelect: () => setThrottle(id),
     })),
     "separator",
@@ -75,17 +103,31 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
 
   const running = status?.running ?? false;
   const on = status?.systemProxyEnabled ?? false;
-  const portValue = port || String(status?.port ?? 9090);
+  const recording = status?.recording ?? true;
+  const active = rules ? activeRules(rules) : [];
+  const ruleCount = active.reduce((n, [, c]) => n + c, 0);
+  const scriptCount = scripts.filter((s) => s.enabled).length;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
+    <div className="flex items-center gap-1.5 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
+      <button
+        className={`${button} flex items-center gap-1.5 ${recording ? "" : "border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200"}`}
+        disabled={!status}
+        aria-pressed={!recording}
+        title={recording ? "Pause recording: traffic still flows and rules still apply, but nothing new is listed" : "Resume recording"}
+        onClick={() => run(() => api.setRecording(!recording))}
+      >
+        {recording ? <Pause size={ICON} /> : <Play size={ICON} />}
+        <span className="hidden lg:inline">{recording ? "Pause" : "Paused"}</span>
+      </button>
+
       <button
         role="switch"
         aria-checked={on}
         disabled={busy || (!running && !on)}
         onClick={() => run(() => api.setSystemProxy(!on))}
         title={on ? "Stop routing this Mac’s traffic through the proxy" : "Route this Mac’s traffic through the proxy"}
-        className="flex items-center gap-2 rounded-md px-1 py-0.5 text-xs font-medium disabled:opacity-50"
+        className="flex shrink-0 items-center gap-2 rounded-md px-1 py-0.5 text-xs font-medium disabled:opacity-50"
       >
         <span
           className={`relative h-[18px] w-8 rounded-full transition-colors ${on ? "bg-emerald-500" : "bg-neutral-300 dark:bg-neutral-700"}`}
@@ -97,83 +139,204 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
         Proxy {on ? "On" : "Off"}
       </button>
 
-      <div className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
+      <StatusPill status={status} onClick={details.open} />
 
-      <span
-        className={`h-2 w-2 rounded-full ${running ? "bg-emerald-500" : "bg-neutral-400"}`}
-        title={running ? "Listening" : "Stopped"}
-      />
-      <span className="font-mono text-xs text-neutral-600 dark:text-neutral-400">
-        {running ? status?.addr : "Stopped"}
-      </span>
-      <input
-        aria-label="Port"
-        className="w-16 rounded-md border border-neutral-300 bg-transparent px-1.5 py-0.5 font-mono text-xs dark:border-neutral-700"
-        value={portValue}
-        onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
-      />
-      {running ? (
-        Number(portValue) !== status?.port ? (
-          <button className={button} disabled={busy} onClick={() => run(() => api.startProxy(Number(portValue)))}>
-            Apply port
-          </button>
-        ) : (
-          <button className={button} disabled={busy} onClick={() => run(api.stopProxy)}>
-            Stop
-          </button>
-        )
-      ) : (
-        <button className={button} disabled={busy} onClick={() => run(() => api.startProxy(Number(portValue)))}>
-          Start
-        </button>
-      )}
+      <Divider />
+      <button className={`${button} flex items-center gap-1`} aria-haspopup="menu" onClick={(e) => showMenu(e, fileMenu)}>
+        <FolderOpen size={ICON} />
+        File
+        <ChevronDown size={12} />
+      </button>
+      <button className={`${button} flex items-center gap-1`} title="Compose a new request (⌘N)" onClick={() => openComposer(emptyDraft)}>
+        <Send size={ICON} />
+        <span className="hidden lg:inline">Compose</span>
+      </button>
 
-      <div className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-800" />
-      <button className={button} onClick={(e) => showMenu(e, fileMenu)}>
-        File ▾
-      </button>
-      <button className={button} title="Compose a new request (⌘N)" onClick={() => openComposer(emptyDraft)}>
-        Compose
-      </button>
+      <Divider />
       <button
-        className={`${button} ${throttle?.enabled ? "border-amber-400 text-amber-700 dark:text-amber-300" : ""}`}
+        className={`${button} flex items-center gap-1 ${throttleName ? "border-amber-400 text-amber-700 dark:text-amber-300" : ""}`}
         disabled={!settings}
+        aria-haspopup="menu"
+        title="Network throttle"
         onClick={(e) => showMenu(e, throttleMenu)}
       >
-        {throttleLabel} ▾
+        <Gauge size={ICON} />
+        {throttleName ?? <span className="hidden lg:inline">Throttle</span>}
+        <ChevronDown size={12} />
+      </button>
+      <button
+        className={`${button} flex items-center gap-1`}
+        title={`Map Local, Map Remote, Rewrite, Block, Breakpoints (⌘L)${active.length ? `\nActive: ${active.map(([k, n]) => `${n} ${k}`).join(", ")}` : ""}`}
+        onClick={() => openRules({ tab: "mapLocal" })}
+      >
+        <Workflow size={ICON} />
+        Rules
+        <Badge n={ruleCount} />
+      </button>
+      <button
+        className={`${button} flex items-center gap-1`}
+        title={`JavaScript onRequest / onResponse hooks (⌘J)${scriptCount ? `\n${scriptCount} enabled` : ""}`}
+        onClick={() => openScripts(true)}
+      >
+        <Code size={ICON} />
+        Scripts
+        <Badge n={scriptCount} />
       </button>
 
-      <button className={button} title="Map Local, Map Remote, Rewrite, Block, Breakpoints (⌘L)" onClick={() => openRules({ tab: "mapLocal" })}>
-        Rules…
-      </button>
-      <button className={button} title="JavaScript onRequest / onResponse hooks (⌘J)" onClick={() => openScripts(true)}>
-        Scripts…
-      </button>
-
-      <div className="ml-auto flex items-center gap-2">
-        <button className={button} title="Phones, tablets and Simulators" onClick={() => openDevices(true)}>
-          Devices…
-        </button>
-        <button className={button} title="SSL Proxying, Block and Allow lists, Throttle (⌘,)" onClick={() => openSettings("general")}>
-          Settings…
-        </button>
-        {status && (
-          <button
-            className={`${button} ${status.caTrusted ? "" : "border-amber-400 text-amber-700 dark:text-amber-300"}`}
-            onClick={onSetup}
-          >
-            {status.caTrusted ? "Setup…" : "Certificate not trusted…"}
-          </button>
-        )}
-        <button
-          className={button}
-          title="Clear all flows (⌘K)"
-          onClick={() => clearFlows().catch((e) => onError(errorMessage(e)))}
-        >
-          Clear
-        </button>
+      <div className="ml-auto flex items-center gap-1.5">
+        <IconButton label="Devices: phones, tablets and Simulators" onClick={() => openDevices(true)}>
+          <Smartphone size={ICON} />
+        </IconButton>
+        <IconButton label="Settings (⌘,)" onClick={() => openSettings("general")}>
+          <SettingsIcon size={ICON} />
+        </IconButton>
+        <IconButton label="Clear all flows (⌘K)" onClick={() => clearFlows().catch((e) => onError(errorMessage(e)))}>
+          <Trash2 size={ICON} />
+        </IconButton>
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {details.at && status && (
+        <Popover x={details.at.x} y={details.at.y} label="Proxy status" onClose={details.close}>
+          <StatusDetails
+            status={status}
+            busy={busy}
+            run={run}
+            onSetup={() => {
+              details.close();
+              onSetup();
+            }}
+            onSettings={() => {
+              details.close();
+              openSettings("general");
+            }}
+          />
+        </Popover>
+      )}
+    </div>
+  );
+}
+
+function Divider() {
+  return <div className="mx-0.5 h-5 w-px shrink-0 bg-neutral-200 dark:bg-neutral-800" />;
+}
+
+function Badge({ n }: { n: number }) {
+  if (!n) return null;
+  return <span className="rounded-full bg-violet-600 px-1.5 text-[10px] font-semibold leading-4 text-white">{n}</span>;
+}
+
+/** Address, plus a warning when HTTPS can't be decrypted; opens the details. */
+function StatusPill({ status, onClick }: { status: Status | null; onClick: (e: React.MouseEvent) => void }) {
+  const running = status?.running ?? false;
+  const untrusted = status ? !status.caTrusted : false;
+  return (
+    <button
+      className={`${button} flex min-w-0 items-center gap-1.5 font-mono font-normal ${untrusted ? "border-amber-400" : ""}`}
+      aria-haspopup="dialog"
+      title="Listener, certificate and system proxy"
+      disabled={!status}
+      onClick={onClick}
+    >
+      <span className={`h-2 w-2 shrink-0 rounded-full ${running ? "bg-emerald-500" : "bg-neutral-400"}`} />
+      <span className="truncate">{running ? status?.addr : "Stopped"}</span>
+      {untrusted && <ShieldAlert size={ICON} className="shrink-0 text-amber-600" aria-label="Certificate not trusted" />}
+      <ChevronDown size={12} className="shrink-0" />
+    </button>
+  );
+}
+
+function StatusDetails({
+  status,
+  busy,
+  run,
+  onSetup,
+  onSettings,
+}: {
+  status: Status;
+  busy: boolean;
+  run: (fn: () => Promise<Status>) => void;
+  onSetup: () => void;
+  onSettings: () => void;
+}) {
+  return (
+    <div className="divide-y divide-neutral-200 dark:divide-neutral-800">
+      <Row
+        title="Listener"
+        detail={status.running ? `Listening on ${status.addr}` : `Stopped (port ${status.port})`}
+        ok={status.running}
+        action={
+          <button className={button} disabled={busy} onClick={() => run(status.running ? api.stopProxy : () => api.startProxy())}>
+            {status.running ? "Stop" : "Start"}
+          </button>
+        }
+      />
+      <Row
+        title="HTTPS certificate"
+        detail={status.caTrusted ? "Trusted; HTTPS traffic is decrypted" : "Not trusted; HTTPS can’t be decrypted"}
+        ok={status.caTrusted}
+        warn={!status.caTrusted}
+        action={
+          <button className={status.caTrusted ? button : primaryButton} onClick={onSetup}>
+            {status.caTrusted ? "Setup Guide…" : "Set Up…"}
+          </button>
+        }
+      />
+      <Row
+        title="System proxy"
+        detail={status.systemProxyEnabled ? "This Mac’s traffic goes through the proxy" : "Off; only apps pointed at the proxy are captured"}
+        ok={status.systemProxyEnabled}
+        action={
+          <button
+            className={button}
+            disabled={busy || (!status.running && !status.systemProxyEnabled)}
+            onClick={() => run(() => api.setSystemProxy(!status.systemProxyEnabled))}
+          >
+            {status.systemProxyEnabled ? "Switch Off" : "Switch On"}
+          </button>
+        }
+      />
+      <Row
+        title="Recording"
+        detail={status.recording ? "New traffic is listed" : "Paused; traffic still flows and rules still apply"}
+        ok={status.recording}
+        warn={!status.recording}
+        action={
+          <button className={button} onClick={() => run(() => api.setRecording(!status.recording))}>
+            {status.recording ? "Pause" : "Resume"}
+          </button>
+        }
+      />
+      <div className="flex items-center justify-between px-3 py-2 text-neutral-500">
+        <span>Port {status.port}</span>
+        <button className="text-sky-600 hover:underline" onClick={onSettings}>
+          Change in Settings…
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Row({
+  title,
+  detail,
+  ok,
+  warn,
+  action,
+}: {
+  title: string;
+  detail: string;
+  ok: boolean;
+  warn?: boolean;
+  action: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <span className={`h-2 w-2 shrink-0 rounded-full ${warn ? "bg-amber-500" : ok ? "bg-emerald-500" : "bg-neutral-400"}`} />
+      <div className="min-w-0 flex-1">
+        <div className="font-medium">{title}</div>
+        <div className="text-neutral-500">{detail}</div>
+      </div>
+      {action}
     </div>
   );
 }

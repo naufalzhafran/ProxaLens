@@ -3,8 +3,9 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, errorMessage, type FlowDetail, type OutgoingRequest } from "../api";
 import { useFlows } from "../state/flows";
 import { useSettings, useUi, type Draft, type RulesView } from "../state/ui";
-import { useToast } from "./clipboard";
+import { copy, useToast } from "./clipboard";
 import { confirmAction } from "./confirm";
+import { formatCurl } from "./curl";
 import { buildPredicate } from "./filter";
 import { bodyBytes } from "./http";
 import { mapLocalFrom, newRule, patternFor, type RuleKind } from "./rules";
@@ -136,6 +137,46 @@ export const files = {
       const path = await open({ filters: [...HAR, ...SESSION], multiple: false, directory: false });
       return path ? `Imported ${plural(await api.importFlows(path, false))}` : null;
     }),
+};
+
+/** Removes flows from the list; asks first when there are several. */
+export async function removeFlows(ids: number[]) {
+  if (!ids.length) return;
+  if (ids.length > 1 && !(await confirmAction(`Remove ${plural(ids.length)}? This can’t be undone.`, "Remove"))) return;
+  try {
+    await api.removeFlows(ids);
+  } catch (e) {
+    toast(errorMessage(e));
+  }
+}
+
+/** Actions for several selected flows at once. */
+export const batch = {
+  copyUrls: (ids: number[]) => {
+    const { byId } = useFlows.getState();
+    return copy(ids.map((id) => byId[id]?.url).filter(Boolean).join("\n"), `${ids.length} URLs`);
+  },
+  copyCurls: async (ids: number[]) => {
+    const details = await Promise.all(ids.map((id) => api.getFlow(id)));
+    const commands = details
+      .filter((d): d is FlowDetail => d !== null)
+      .map((d) => formatCurl(d.meta.method, d.meta.url, d.requestHeaders, d.requestBody));
+    return copy(commands.join("\n\n"), `${commands.length} cURL commands`);
+  },
+  /** Repeats one after another, so the copies keep the original order. */
+  repeat: async (ids: number[]) => {
+    let sent = 0;
+    for (const id of ids) {
+      try {
+        await api.repeatFlow(id);
+        sent++;
+      } catch (e) {
+        toast(`Repeat of #${id} failed: ${errorMessage(e)}`);
+        return;
+      }
+    }
+    toast(`Repeated ${plural(sent)}`);
+  },
 };
 
 /** Ids of the flows the table currently shows (filters applied). */

@@ -71,6 +71,8 @@ export interface Status {
   caFingerprint: string;
   systemProxyEnabled: boolean;
   dataDir: string;
+  /** False while recording is paused. */
+  recording: boolean;
 }
 
 export interface RestoreReport {
@@ -84,6 +86,7 @@ export interface HostList {
 }
 
 export interface Settings {
+  port: number;
   sslProxying: { include: string[]; exclude: string[] };
   blockList: HostList;
   allowList: HostList;
@@ -213,6 +216,7 @@ export interface LogEntry {
 export type FlowBatch =
   | { type: "upserts"; flows: FlowMeta[] }
   | { type: "cleared" }
+  | { type: "removed"; ids: number[] }
   | { type: "resync" };
 
 export const api = {
@@ -226,6 +230,8 @@ export const api = {
     invoke<{ flows: FlowMeta[]; total: number }>("list_flows", { offset, limit }),
   getFlow: (id: number) => invoke<FlowDetail | null>("get_flow", { id }),
   clearFlows: () => invoke<void>("clear_flows"),
+  removeFlows: (ids: number[]) => invoke<number>("remove_flows", { ids }),
+  setRecording: (enabled: boolean) => invoke<Status>("set_recording", { enabled }),
   subscribeFlows: (onBatch: (b: FlowBatch) => void) => {
     const channel = new Channel<FlowBatch>();
     channel.onmessage = onBatch;

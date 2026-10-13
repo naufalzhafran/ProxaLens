@@ -4,6 +4,30 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 export const button =
   "rounded-md border border-neutral-300 px-2.5 py-1 text-xs font-medium hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800";
 
+/** A square toolbar button showing only an icon; `label` is its name and tooltip. */
+export function IconButton({
+  label,
+  onClick,
+  children,
+  className = "",
+}: {
+  label: string;
+  onClick: (e: React.MouseEvent) => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <button
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={`flex h-[26px] w-[26px] items-center justify-center rounded-md border border-neutral-300 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800 ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export const primaryButton =
   "rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50";
 
@@ -84,6 +108,88 @@ export interface MenuItem {
 }
 export type MenuEntry = MenuItem | "separator";
 
+/**
+ * Positions a floating panel at (x, y), kept inside the window, and closes
+ * it on click-away, window blur or Escape. Escape is caught first, so a menu
+ * inside a dialog closes without closing the dialog too.
+ */
+function useFloating(x: number, y: number, onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x, y });
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setPos({
+      x: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)),
+      y: Math.max(4, Math.min(y, window.innerHeight - r.height - 4)),
+    });
+  }, [x, y]);
+
+  useEffect(() => {
+    const down = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopImmediatePropagation();
+      onClose();
+    };
+    window.addEventListener("mousedown", down);
+    window.addEventListener("keydown", key, true);
+    window.addEventListener("blur", onClose);
+    return () => {
+      window.removeEventListener("mousedown", down);
+      window.removeEventListener("keydown", key, true);
+      window.removeEventListener("blur", onClose);
+    };
+  }, [onClose]);
+
+  return { ref, style: { left: pos.x, top: pos.y } };
+}
+
+/** A panel anchored below a button, closed by click-away or Escape. */
+export function Popover({
+  x,
+  y,
+  onClose,
+  label,
+  children,
+}: {
+  x: number;
+  y: number;
+  onClose: () => void;
+  label: string;
+  children: React.ReactNode;
+}) {
+  const { ref, style } = useFloating(x, y, onClose);
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label={label}
+      style={style}
+      className="fixed z-50 w-80 rounded-lg border border-neutral-200 bg-white text-xs shadow-xl dark:border-neutral-700 dark:bg-neutral-900"
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Opens a floating panel below the clicked element. */
+export function useAnchor() {
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  return {
+    at,
+    open: (e: React.MouseEvent) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      setAt({ x: r.left, y: r.bottom + 4 });
+    },
+    close: () => setAt(null),
+  };
+}
+
 /** A context menu at a fixed screen position, closed by click-away or Escape. */
 export function ContextMenu({
   x,
@@ -96,42 +202,14 @@ export function ContextMenu({
   items: MenuEntry[];
   onClose: () => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ x, y });
-
-  // Keep the menu inside the window.
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setPos({
-      x: Math.min(x, window.innerWidth - r.width - 4),
-      y: Math.min(y, window.innerHeight - r.height - 4),
-    });
-  }, [x, y]);
-
-  useEffect(() => {
-    const down = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) onClose();
-    };
-    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("mousedown", down);
-    window.addEventListener("keydown", key);
-    window.addEventListener("blur", onClose);
-    return () => {
-      window.removeEventListener("mousedown", down);
-      window.removeEventListener("keydown", key);
-      window.removeEventListener("blur", onClose);
-    };
-  }, [onClose]);
-
+  const { ref, style } = useFloating(x, y, onClose);
   const checks = items.some((i) => i !== "separator" && i.checked !== undefined);
 
   return (
     <div
       ref={ref}
       role="menu"
-      style={{ left: pos.x, top: pos.y }}
+      style={style}
       className="fixed z-50 min-w-48 rounded-md border border-neutral-200 bg-white py-1 text-xs shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
     >
       {items.map((item, i) =>

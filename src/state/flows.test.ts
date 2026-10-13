@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FlowMeta } from "../api";
 import { formatBytes, formatDuration, shortContentType } from "../lib/format";
 import { groupByApp, groupByDomain } from "../components/Sidebar";
-import { applyBatch, fromList, MAX_FLOWS, toggle } from "./flows";
+import { applyBatch, fromList, MAX_FLOWS, toggle, useFlows } from "./flows";
 
 function flow(id: number, over: Partial<FlowMeta> = {}): FlowMeta {
   return {
@@ -31,9 +31,10 @@ function flow(id: number, over: Partial<FlowMeta> = {}): FlowMeta {
 
 describe("applyBatch", () => {
   it("appends new flows and updates existing ones in place", () => {
-    let s: { order: number[]; byId: Record<number, FlowMeta>; selectedId: number | null } = {
+    let s: { order: number[]; byId: Record<number, FlowMeta>; selectedId: number | null; selection: number[] } = {
       ...fromList([flow(1), flow(2)]),
       selectedId: 2,
+      selection: [2],
     };
     s = { ...s, ...applyBatch(s, { type: "upserts", flows: [flow(2, { status: 200 }), flow(3)] }) };
     expect(s.order).toEqual([1, 2, 3]);
@@ -42,17 +43,49 @@ describe("applyBatch", () => {
   });
 
   it("clears everything", () => {
-    const s = { ...fromList([flow(1)]), selectedId: 1 };
-    expect(applyBatch(s, { type: "cleared" })).toEqual({ order: [], byId: {}, selectedId: null });
+    const s = { ...fromList([flow(1)]), selectedId: 1, selection: [1] };
+    expect(applyBatch(s, { type: "cleared" })).toEqual({ order: [], byId: {}, selectedId: null, selection: [] });
+  });
+
+  it("removes flows and drops them from the selection", () => {
+    const s = { ...fromList([flow(1), flow(2), flow(3)]), selectedId: 3, selection: [2, 3] };
+    const next = applyBatch(s, { type: "removed", ids: [3, 9] });
+    expect(next.order).toEqual([1, 2]);
+    expect(next.byId![3]).toBeUndefined();
+    expect(next.selectedId).toBeNull();
+    expect(next.selection).toEqual([2]);
   });
 
   it("caps the list and drops the selection when it is evicted", () => {
-    const s = { ...fromList([flow(0)]), selectedId: 0 };
+    const s = { ...fromList([flow(0)]), selectedId: 0, selection: [0] };
     const many = Array.from({ length: MAX_FLOWS }, (_, i) => flow(i + 1));
     const next = applyBatch(s, { type: "upserts", flows: many });
     expect(next.order!.length).toBe(MAX_FLOWS);
     expect(next.byId![0]).toBeUndefined();
     expect(next.selectedId).toBeNull();
+    expect(next.selection).toEqual([]);
+  });
+});
+
+describe("selection", () => {
+  it("toggles, extends ranges from the anchor and selects all", () => {
+    const rows = [1, 2, 3, 4, 5];
+    useFlows.setState({ selectedId: null, selection: [], anchor: null });
+    const s = () => useFlows.getState();
+    s().select(2);
+    s().selectRange(4, rows);
+    expect(s().selection).toEqual([2, 3, 4]);
+    expect(s().selectedId).toBe(4);
+    s().selectRange(1, rows); // the anchor stays at 2
+    expect(s().selection).toEqual([1, 2]);
+    s().toggleSelected(5);
+    expect(s().selection).toEqual([1, 2, 5]);
+    s().toggleSelected(5);
+    expect([s().selection, s().selectedId]).toEqual([[1, 2], 2]);
+    s().selectAll(rows);
+    expect(s().selection).toEqual(rows);
+    s().select(null);
+    expect(s().selection).toEqual([]);
   });
 });
 

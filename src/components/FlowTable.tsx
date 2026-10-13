@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { api, type FlowMeta } from "../api";
-import { addRuleFor, compareWith, dontDecrypt, editAndRepeat, files, repeat } from "../lib/actions";
+import { addRuleFor, batch, compareWith, dontDecrypt, editAndRepeat, files, removeFlows, repeat } from "../lib/actions";
 import { copy } from "../lib/clipboard";
 import { formatCurl } from "../lib/curl";
 import { buildPredicate } from "../lib/filter";
 import { baseDomain } from "../lib/http";
 import { formatBytes, formatDuration, formatTime, shortContentType, statusColor } from "../lib/format";
+import { useColumns, type ColumnKey, type Sort } from "../state/columns";
 import { useFlows } from "../state/flows";
 import { useUi } from "../state/ui";
 import { ContextMenu, type MenuEntry } from "./ui";
@@ -16,25 +18,96 @@ const HEADER_HEIGHT = 24;
 const GAP = 6;
 const PAD_X = 12;
 
-/** Track sizes and the narrowest each may get; the table scrolls sideways below the sum. */
-const COLUMNS: { label: string; track: string; min: number; right?: boolean }[] = [
-  { label: "#", track: "44px", min: 44 },
-  { label: "App", track: "minmax(60px,0.7fr)", min: 60 },
-  { label: "Method", track: "60px", min: 60 },
-  { label: "Status", track: "48px", min: 48 },
-  { label: "Host", track: "minmax(100px,1.2fr)", min: 100 },
-  { label: "Path", track: "minmax(120px,2fr)", min: 120 },
-  { label: "Type", track: "52px", min: 52 },
-  { label: "Size", track: "56px", min: 56, right: true },
-  { label: "Time", track: "56px", min: 56, right: true },
-  { label: "Started", track: "64px", min: 64 },
+interface Column {
+  key: ColumnKey;
+  label: string;
+  /** Grid track when the user hasn't set a width. */
+  track: string;
+  /** Narrowest width, also the floor when resizing. */
+  min: number;
+  right?: boolean;
+  /** Sort key; strings sort case-insensitively. */
+  value: (f: FlowMeta) => string | number;
+  cell: (f: FlowMeta, selected: boolean) => React.ReactNode;
+}
+
+const muted = (selected: boolean) => (selected ? "" : "text-neutral-500");
+
+export const COLUMNS: Column[] = [
+  {
+    key: "id", label: "#", track: "44px", min: 36, value: (f) => f.id,
+    cell: (f, sel) => <span className={sel ? "" : "text-neutral-400"}>{f.id}</span>,
+  },
+  {
+    key: "app", label: "App", track: "minmax(60px,0.7fr)", min: 40, value: (f) => f.process ?? "",
+    cell: (f) => (
+      <span className="truncate font-sans" title={f.pid ? `${f.process} (pid ${f.pid})` : undefined}>
+        {f.process ?? ""}
+      </span>
+    ),
+  },
+  {
+    key: "method", label: "Method", track: "60px", min: 44, value: (f) => f.method,
+    cell: (f) => <span className="truncate font-semibold">{f.method}</span>,
+  },
+  {
+    key: "status", label: "Status", track: "48px", min: 36, value: (f) => f.status ?? -1,
+    cell: (f, sel) => <span className={sel ? "" : statusColor(f.status)}>{statusLabel(f)}</span>,
+  },
+  {
+    key: "host", label: "Host", track: "minmax(100px,1.2fr)", min: 60, value: (f) => f.host,
+    cell: (f) => <span className="truncate">{f.host}</span>,
+  },
+  {
+    key: "path", label: "Path", track: "minmax(120px,2fr)", min: 60, value: (f) => f.path,
+    cell: (f, sel) => (
+      <span className="truncate" title={f.tags.length ? `${f.url}\n${f.tags.join(", ")}` : f.url}>
+        {f.tags.length > 0 && (
+          <span className={`mr-1 rounded px-1 text-[10px] ${sel ? "bg-white/25" : "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"}`}>
+            {f.tags.map((t) => t.split(" ")[0]).join(" · ")}
+          </span>
+        )}
+        {f.path}
+      </span>
+    ),
+  },
+  {
+    key: "type", label: "Type", track: "52px", min: 36, value: typeLabel,
+    cell: (f, sel) => <span className={`truncate ${muted(sel)}`}>{typeLabel(f)}</span>,
+  },
+  {
+    key: "size", label: "Size", track: "56px", min: 40, right: true, value: (f) => f.responseSize,
+    cell: (f) => <span className="truncate text-right">{f.state === "completed" ? formatBytes(f.responseSize) : ""}</span>,
+  },
+  {
+    key: "time", label: "Time", track: "56px", min: 40, right: true, value: (f) => f.durationMs ?? -1,
+    cell: (f) => <span className="truncate text-right">{formatDuration(f.durationMs)}</span>,
+  },
+  {
+    key: "started", label: "Started", track: "64px", min: 48, value: (f) => f.startedAt,
+    cell: (f, sel) => (
+      <span className={`truncate ${muted(sel)}`} title={formatTime(f.startedAt)}>
+        {formatTime(f.startedAt, false)}
+      </span>
+    ),
+  },
 ];
-const GRID: React.CSSProperties = {
-  gridTemplateColumns: COLUMNS.map((c) => c.track).join(" "),
-  columnGap: GAP,
-  paddingInline: PAD_X,
-};
-const MIN_WIDTH = COLUMNS.reduce((n, c) => n + c.min, 0) + GAP * (COLUMNS.length - 1) + PAD_X * 2;
+
+const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+
+/** Sorts ids by a column, keeping arrival order for ties; exported for tests. */
+export function sortRows(rows: number[], byId: Record<number, FlowMeta>, sort: Sort | null): number[] {
+  if (!sort) return rows;
+  const col = COLUMNS.find((c) => c.key === sort.key);
+  if (!col) return rows;
+  const dir = sort.desc ? -1 : 1;
+  const keyed = rows.map((id) => [id, col.value(byId[id])] as const);
+  keyed.sort(([ia, a], [ib, b]) => {
+    const c = typeof a === "number" && typeof b === "number" ? a - b : collator.compare(String(a), String(b));
+    return c * dir || ia - ib;
+  });
+  return keyed.map(([id]) => id);
+}
 
 export function FlowTable() {
   const order = useFlows((s) => s.order);
@@ -44,14 +117,32 @@ export function FlowTable() {
   const statuses = useFlows((s) => s.statuses);
   const scope = useFlows((s) => s.scope);
   const selectedId = useFlows((s) => s.selectedId);
-  const select = useFlows((s) => s.select);
-  const [menu, setMenu] = useState<{ x: number; y: number; flow: FlowMeta } | null>(null);
+  const selection = useFlows((s) => s.selection);
+  const hidden = useColumns((s) => s.hidden);
+  const widths = useColumns((s) => s.widths);
+  const sort = useColumns((s) => s.sort);
+  // Items are built at render time so toggles stay current while the menu is open.
+  const [menu, setMenu] = useState<{ x: number; y: number; items: () => MenuEntry[] } | null>(null);
 
   const predicate = useMemo(
     () => buildPredicate({ text: filter, methods, statuses, scope }),
     [filter, methods, statuses, scope],
   );
-  const rows = useMemo(() => order.filter((id) => predicate(byId[id])), [order, byId, predicate]);
+  const rows = useMemo(
+    () => sortRows(order.filter((id) => predicate(byId[id])), byId, sort),
+    [order, byId, predicate, sort],
+  );
+  const selected = useMemo(() => new Set(selection), [selection]);
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+
+  const columns = COLUMNS.filter((c) => !hidden.includes(c.key));
+  const grid: React.CSSProperties = {
+    gridTemplateColumns: columns.map((c) => (widths[c.key] ? `${widths[c.key]}px` : c.track)).join(" "),
+    columnGap: GAP,
+    paddingInline: PAD_X,
+  };
+  const minWidth = columns.reduce((n, c) => n + (widths[c.key] ?? c.min), 0) + GAP * (columns.length - 1) + PAD_X * 2;
 
   const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -64,13 +155,46 @@ export function FlowTable() {
     scrollPaddingStart: HEADER_HEIGHT,
   });
 
-  // Follow new traffic when scrolled to the bottom.
+  // Follow new traffic when scrolled to the bottom of a list in arrival order.
   const atBottom = useRef(true);
+  const follows = !sort || (sort.key === "id" && !sort.desc);
   useEffect(() => {
-    if (atBottom.current && rows.length) virtualizer.scrollToIndex(rows.length - 1);
-  }, [rows.length, virtualizer]);
+    if (follows && atBottom.current && rows.length) virtualizer.scrollToIndex(rows.length - 1);
+  }, [rows.length, virtualizer, follows]);
+
+  // A new sort order: keep the selected flow in view, or start at the top.
+  const lastSort = useRef(sort);
+  useEffect(() => {
+    if (lastSort.current === sort) return;
+    lastSort.current = sort;
+    const i = useFlows.getState().selectedId;
+    const at = i === null ? -1 : rowsRef.current.indexOf(i);
+    virtualizer.scrollToIndex(Math.max(0, at), { align: at < 0 ? "start" : "center" });
+  }, [sort, virtualizer]);
+
+  function onRowClick(e: React.MouseEvent, id: number) {
+    const s = useFlows.getState();
+    if (e.metaKey) s.toggleSelected(id);
+    else if (e.shiftKey) s.selectRange(id, rows);
+    else s.select(id);
+  }
 
   function onKeyDown(e: React.KeyboardEvent) {
+    const s = useFlows.getState();
+    if (e.metaKey && e.key === "a") {
+      e.preventDefault();
+      s.selectAll(rows);
+      return;
+    }
+    if (e.key === "Backspace" || e.key === "Delete") {
+      e.preventDefault();
+      removeFlows(rows.filter((id) => selected.has(id)));
+      return;
+    }
+    if (e.key === "Escape" && selection.length > 1) {
+      s.select(selectedId);
+      return;
+    }
     const moves: Record<string, (i: number) => number> = {
       ArrowDown: (i) => i + 1,
       ArrowUp: (i) => i - 1,
@@ -82,10 +206,26 @@ export function FlowTable() {
     e.preventDefault();
     const i = selectedId === null ? -1 : rows.indexOf(selectedId);
     const next = Math.min(rows.length - 1, Math.max(0, move(i)));
-    if (rows[next] !== undefined) {
-      select(rows[next]);
-      virtualizer.scrollToIndex(next);
-    }
+    if (rows[next] === undefined) return;
+    if (e.shiftKey) s.selectRange(rows[next], rows);
+    else s.select(rows[next]);
+    virtualizer.scrollToIndex(next);
+  }
+
+  function onRowMenu(e: React.MouseEvent, f: FlowMeta) {
+    e.preventDefault();
+    const several = selected.has(f.id) && selection.length > 1;
+    if (!several) useFlows.getState().select(f.id);
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: () => (several ? batchMenu(rows.filter((id) => selected.has(id))) : flowMenu(f)),
+    });
+  }
+
+  function onHeaderMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    setMenu({ x: e.clientX, y: e.clientY, items: columnMenu });
   }
 
   return (
@@ -93,6 +233,7 @@ export function FlowTable() {
       <div
         ref={parentRef}
         tabIndex={0}
+        aria-label="Flows"
         onKeyDown={onKeyDown}
         onScroll={(e) => {
           const el = e.currentTarget;
@@ -100,31 +241,28 @@ export function FlowTable() {
         }}
         className="min-h-0 flex-1 overflow-auto outline-none"
       >
-        <div style={{ minWidth: MIN_WIDTH }}>
+        <div style={{ minWidth }}>
           <div
-            style={{ ...GRID, height: HEADER_HEIGHT }}
+            style={{ ...grid, height: HEADER_HEIGHT }}
+            onContextMenu={onHeaderMenu}
+            title="Click to sort; drag an edge to resize; right-click to choose columns"
             className="sticky top-0 z-10 grid items-center border-b border-neutral-200 bg-white text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:border-neutral-800 dark:bg-neutral-950"
           >
-            {COLUMNS.map((c) => (
-              <span key={c.label} className={`truncate ${c.right ? "text-right" : ""}`}>
-                {c.label}
-              </span>
+            {columns.map((c) => (
+              <HeaderCell key={c.key} column={c} sort={sort?.key === c.key ? sort : null} />
             ))}
           </div>
           {rows.length > 0 && (
             <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
               {virtualizer.getVirtualItems().map((v) => {
                 const f = byId[rows[v.index]];
-                const selected = f.id === selectedId;
+                const sel = selected.has(f.id);
                 return (
                   <div
                     key={f.id}
-                    onClick={() => select(f.id)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      select(f.id);
-                      setMenu({ x: e.clientX, y: e.clientY, flow: f });
-                    }}
+                    aria-selected={sel}
+                    onClick={(e) => onRowClick(e, f.id)}
+                    onContextMenu={(e) => onRowMenu(e, f)}
                     style={{
                       position: "absolute",
                       top: 0,
@@ -132,37 +270,13 @@ export function FlowTable() {
                       right: 0,
                       height: ROW_HEIGHT,
                       transform: `translateY(${v.start - HEADER_HEIGHT}px)`,
-                      ...GRID,
+                      ...grid,
                     }}
-                    className={`grid cursor-default items-center font-mono text-xs ${rowClass(
-                      f,
-                      selected,
-                      v.index,
-                    )}`}
+                    className={`grid cursor-default items-center font-mono text-xs ${rowClass(f, sel, v.index)}`}
                   >
-                    <span className={selected ? "" : "text-neutral-400"}>{f.id}</span>
-                    <span className="truncate font-sans" title={f.pid ? `${f.process} (pid ${f.pid})` : undefined}>
-                      {f.process ?? ""}
-                    </span>
-                    <span className="font-semibold">{f.method}</span>
-                    <span className={selected ? "" : statusColor(f.status)}>{statusLabel(f)}</span>
-                    <span className="truncate">{f.host}</span>
-                    <span className="truncate" title={f.tags.length ? `${f.url}\n${f.tags.join(", ")}` : f.url}>
-                      {f.tags.length > 0 && (
-                        <span className={`mr-1 rounded px-1 text-[10px] ${selected ? "bg-white/25" : "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"}`}>
-                          {f.tags.map((t) => t.split(" ")[0]).join(" · ")}
-                        </span>
-                      )}
-                      {f.path}
-                    </span>
-                    <span className={`truncate ${selected ? "" : "text-neutral-500"}`}>
-                      {f.state === "webSocket" ? "ws" : f.state === "tunnel" ? "tunnel" : shortContentType(f.contentType)}
-                    </span>
-                    <span className="text-right">{f.state === "completed" ? formatBytes(f.responseSize) : ""}</span>
-                    <span className="text-right">{formatDuration(f.durationMs)}</span>
-                    <span className={selected ? "" : "text-neutral-500"} title={formatTime(f.startedAt)}>
-                      {formatTime(f.startedAt, false)}
-                    </span>
+                    {columns.map((c) => (
+                      <Cell key={c.key}>{c.cell(f, sel)}</Cell>
+                    ))}
                   </div>
                 );
               })}
@@ -179,12 +293,84 @@ export function FlowTable() {
       </div>
       <div className="border-t border-neutral-200 px-3 py-1 text-[11px] text-neutral-500 dark:border-neutral-800">
         {rows.length === order.length ? `${order.length} flows` : `${rows.length} of ${order.length} flows`}
+        {selection.length > 1 && ` · ${selection.length} selected`}
       </div>
-      {menu && (
-        <ContextMenu x={menu.x} y={menu.y} items={flowMenu(menu.flow)} onClose={() => setMenu(null)} />
-      )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items()} onClose={() => setMenu(null)} />}
     </div>
   );
+}
+
+/** Lets a cell's content truncate inside its grid track. */
+function Cell({ children }: { children: React.ReactNode }) {
+  return <div className="flex min-w-0 [&>*]:min-w-0 [&>*]:flex-1">{children}</div>;
+}
+
+function HeaderCell({ column, sort }: { column: Column; sort: Sort | null }) {
+  const resizing = useRef(false);
+
+  function startResize(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    resizing.current = true;
+    const cell = e.currentTarget.parentElement!;
+    const start = e.clientX;
+    const startWidth = cell.getBoundingClientRect().width;
+    const move = (ev: MouseEvent) =>
+      useColumns.getState().setWidth(column.key, Math.max(column.min, startWidth + ev.clientX - start));
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      // The click that ends a drag mustn't also sort.
+      setTimeout(() => (resizing.current = false));
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
+
+  return (
+    <div className="relative flex h-full min-w-0 items-center">
+      <button
+        className={`flex h-full min-w-0 flex-1 items-center gap-0.5 uppercase ${column.right ? "justify-end" : ""} ${sort ? "text-neutral-800 dark:text-neutral-200" : ""}`}
+        aria-sort={sort ? (sort.desc ? "descending" : "ascending") : undefined}
+        onClick={() => !resizing.current && useColumns.getState().cycleSort(column.key)}
+      >
+        <span className="truncate">{column.label}</span>
+        {sort && (sort.desc ? <ArrowDown size={10} className="shrink-0" /> : <ArrowUp size={10} className="shrink-0" />)}
+      </button>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={`Resize ${column.label}`}
+        onMouseDown={startResize}
+        onDoubleClick={() => useColumns.getState().setWidth(column.key, null)}
+        className="absolute -right-[5px] top-1 bottom-1 z-10 w-[5px] cursor-col-resize border-r border-neutral-200 hover:border-sky-500 dark:border-neutral-800"
+      />
+    </div>
+  );
+}
+
+/** Show/hide columns; the last visible one can't be hidden. */
+function columnMenu(): MenuEntry[] {
+  const { hidden, toggleHidden, reset } = useColumns.getState();
+  const visible = COLUMNS.length - hidden.length;
+  return [
+    ...COLUMNS.map((c) => {
+      const shown = !hidden.includes(c.key);
+      return {
+        label: c.label === "#" ? "# (number)" : c.label,
+        checked: shown,
+        keepOpen: true,
+        disabled: shown && visible === 1,
+        onSelect: () => toggleHidden(c.key),
+      };
+    }),
+    "separator" as const,
+    { label: "Reset Columns", onSelect: reset },
+  ];
+}
+
+function typeLabel(f: FlowMeta): string {
+  return f.state === "webSocket" ? "ws" : f.state === "tunnel" ? "tunnel" : shortContentType(f.contentType);
 }
 
 function statusLabel(f: FlowMeta): string {
@@ -254,5 +440,25 @@ export function flowMenu(f: FlowMeta): MenuEntry[] {
     },
     { label: `Show Only ${f.host}`, onSelect: () => setScope({ kind: "host", value: f.host }) },
     ...(f.process ? [{ label: `Show Only ${f.process}`, onSelect: () => setScope({ kind: "app", value: f.process! }) }] : []),
+    "separator",
+    { label: "Remove Flow (⌫)", onSelect: () => removeFlows([f.id]) },
+  ];
+}
+
+/** Context-menu entries for several selected flows, in table order. */
+export function batchMenu(ids: number[]): MenuEntry[] {
+  const { byId } = useFlows.getState();
+  const replayable = ids.filter((id) => byId[id] && byId[id].state !== "tunnel" && byId[id].state !== "webSocket");
+  return [
+    { label: `${ids.length} flows selected`, disabled: true, onSelect: () => {} },
+    "separator",
+    { label: "Copy URLs", onSelect: () => batch.copyUrls(ids) },
+    { label: "Copy as cURL", onSelect: () => batch.copyCurls(replayable) },
+    { label: "Export as HAR…", onSelect: () => files.exportHar(ids) },
+    "separator",
+    { label: `Repeat ${replayable.length} in Order`, disabled: !replayable.length, onSelect: () => batch.repeat(replayable) },
+    ...(ids.length === 2 ? [{ label: `Compare #${ids[0]} with #${ids[1]}`, onSelect: () => useUi.getState().openDiff(ids[0], ids[1]) }] : []),
+    "separator",
+    { label: `Remove ${ids.length} Flows (⌫)`, onSelect: () => removeFlows(ids) },
   ];
 }

@@ -90,6 +90,17 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
         <div className="pt-3">
           {tab === "general" && (
             <div className="flex flex-col gap-3">
+              <label className="flex items-center gap-2">
+                <span className="font-medium">Port</span>
+                <input
+                  aria-label="Port"
+                  inputMode="numeric"
+                  className={`${input} w-20`}
+                  value={settings.port || ""}
+                  onChange={(e) => setSettings({ ...settings, port: Math.min(65535, Number(e.target.value.replace(/\D/g, ""))) })}
+                />
+                <span className="text-neutral-500">The proxy restarts on a new port, and the system proxy follows it.</span>
+              </label>
               <Help>How “Proxy On” points this Mac at the proxy.</Help>
               {(
                 [

@@ -20,6 +20,13 @@ export const RULE_KINDS: { id: RuleKind; label: string }[] = [
   { id: "breakpoints", label: "Breakpoints" },
 ];
 
+/** Enabled rules per kind, skipping kinds with none: [["Map Local", 2], …]. */
+export function activeRules(rules: Rules): [string, number][] {
+  return RULE_KINDS.map(({ id, label }) => [label, rules[id].filter((r) => r.enabled).length] as [string, number]).filter(
+    ([, n]) => n > 0,
+  );
+}
+
 export const emptyRules: Rules = { mapLocal: [], mapRemote: [], rewrite: [], block: [], breakpoints: [] };
 
 function newId(): string {

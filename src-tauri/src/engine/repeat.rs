@@ -132,7 +132,7 @@ pub async fn send(
                     found = Some(m.id);
                 }
             }
-            Ok(FlowEvent::Cleared) | Err(TryRecvError::Lagged(_)) => {}
+            Ok(FlowEvent::Cleared | FlowEvent::Removed(_)) | Err(TryRecvError::Lagged(_)) => {}
             Err(_) => break,
         }
     }

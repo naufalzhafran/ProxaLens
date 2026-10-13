@@ -63,6 +63,8 @@ pub struct Status {
     ca_fingerprint: String,
     system_proxy_enabled: bool,
     data_dir: String,
+    /// False while recording is paused.
+    recording: bool,
 }
 
 #[tauri::command]
@@ -86,6 +88,7 @@ async fn status(state: &AppState) -> Status {
         ca_fingerprint: state.engine.ca.sha1_fingerprint(),
         system_proxy_enabled: state.sysproxy.is_enabled(),
         data_dir: state.engine.data_dir().to_string_lossy().into_owned(),
+        recording: state.engine.store.is_recording(),
     }
 }
 
@@ -311,6 +314,24 @@ pub struct FlowDetail {
     ws_messages: Vec<WsMessageView>,
 }
 
+/// Pauses or resumes recording. The proxy keeps forwarding traffic (and
+/// applying rules) while paused; it just doesn't keep it.
+#[tauri::command]
+pub async fn set_recording(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> CmdResult<Status> {
+    state.engine.store.set_recording(enabled);
+    notify_status(&app).await;
+    Ok(status(&state).await)
+}
+
+#[tauri::command]
+pub fn remove_flows(state: State<'_, AppState>, ids: Vec<FlowId>) -> usize {
+    state.engine.store.remove(&ids)
+}
+
 #[tauri::command]
 pub fn get_flow(state: State<'_, AppState>, id: FlowId) -> Option<FlowDetail> {
     let (meta, d) = state.engine.store.get(id)?;
@@ -383,24 +404,36 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
     state.engine.settings()
 }
 
-/// Saves settings. Listening on the network takes a proxy restart, and a
-/// new system proxy mode is applied straight away if it is on.
+/// Saves settings. A new port or listening on the network takes a proxy
+/// restart, and a new system proxy mode is applied straight away if it is on.
 #[tauri::command]
 pub async fn set_settings(
     app: AppHandle,
     state: State<'_, AppState>,
     settings: Settings,
 ) -> CmdResult<Settings> {
+    if settings.port == 0 {
+        return Err("Choose a port from 1 to 65535.".into());
+    }
     let before = state.engine.settings();
     state
         .engine
         .set_settings(settings.clone())
         .map_err(|e| e.to_string())?;
-    if before.allow_lan != settings.allow_lan
-        && let Some(addr) = state.engine.addr().await
-    {
+    let moved = before.port != settings.port;
+    if (moved || before.allow_lan != settings.allow_lan) && state.engine.addr().await.is_some() {
+        // The system proxy points at the old port; move it along.
+        let routed = moved && state.sysproxy.is_enabled();
+        if routed {
+            apply_system_proxy(&state, false).await?;
+        }
         state.engine.stop().await;
-        start(&state, addr.port()).await?;
+        start(&state, settings.port).await?;
+        if routed {
+            apply_system_proxy(&state, true).await?;
+        }
+    } else if moved {
+        *state.port.lock() = settings.port;
     }
     if before.mcp != settings.mcp {
         sync_mcp(&state).await?;
@@ -781,6 +814,9 @@ pub enum FlowBatch {
         flows: Vec<FlowMeta>,
     },
     Cleared,
+    Removed {
+        ids: Vec<FlowId>,
+    },
     /// The UI fell behind; it should reload with `list_flows`.
     Resync,
 }
@@ -796,6 +832,7 @@ pub fn subscribe_flows(state: State<'_, AppState>, on_event: Channel<FlowBatch>)
             let mut order: Vec<FlowId> = Vec::new();
             let mut latest: HashMap<FlowId, FlowMeta> = HashMap::new();
             let (mut cleared, mut resync) = (false, false);
+            let mut removed: Vec<FlowId> = Vec::new();
             loop {
                 match rx.try_recv() {
                     Ok(FlowEvent::Upsert(m)) => {
@@ -806,7 +843,16 @@ pub fn subscribe_flows(state: State<'_, AppState>, on_event: Channel<FlowBatch>)
                     Ok(FlowEvent::Cleared) => {
                         order.clear();
                         latest.clear();
+                        removed.clear();
                         cleared = true;
+                    }
+                    Ok(FlowEvent::Removed(ids)) => {
+                        // A removed flow is never updated again, so dropping
+                        // its pending upsert is enough.
+                        for id in &ids {
+                            latest.remove(id);
+                        }
+                        removed.extend(ids);
                     }
                     Err(TryRecvError::Lagged(_)) => resync = true,
                     Err(TryRecvError::Empty) => break,
@@ -820,8 +866,12 @@ pub fn subscribe_flows(state: State<'_, AppState>, on_event: Channel<FlowBatch>)
                 if cleared {
                     batches.push(FlowBatch::Cleared);
                 }
-                if !order.is_empty() {
-                    let flows = order.iter().filter_map(|id| latest.remove(id)).collect();
+                if !removed.is_empty() {
+                    batches.push(FlowBatch::Removed { ids: removed });
+                }
+                let flows: Vec<FlowMeta> =
+                    order.iter().filter_map(|id| latest.remove(id)).collect();
+                if !flows.is_empty() {
                     batches.push(FlowBatch::Upserts { flows });
                 }
             }
