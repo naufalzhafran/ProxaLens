@@ -275,3 +275,14 @@ async fn stop_releases_the_port() {
     // Port can be bound again once stopped.
     TcpListener::bind(addr).await.unwrap();
 }
+
+#[tokio::test]
+async fn keeps_running_when_started_from_a_spawned_task() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(EngineConfig::new(dir.path())).unwrap());
+    let e = engine.clone();
+    tokio::spawn(async move { e.start(0).await.unwrap() }).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let addr = engine.addr().await.expect("proxy stopped by itself");
+    tokio::net::TcpStream::connect(addr).await.unwrap();
+}
