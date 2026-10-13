@@ -1,6 +1,13 @@
 // Which modal is open, plus the flow marked for comparison.
 import { create } from "zustand";
 import { api, type Settings } from "../api";
+import type { RuleKind } from "../lib/rules";
+
+/** The Rules dialog: which tab, and optionally a new rule to start editing. */
+export interface RulesView {
+  tab: RuleKind;
+  add?: { id: string } & Record<string, unknown>;
+}
 
 export type SettingsTab = "ssl" | "block" | "allow" | "throttle";
 
@@ -22,6 +29,8 @@ interface UiState {
   /** The settings tab to show, or null when closed. */
   settingsTab: SettingsTab | null;
   compareMark: number | null;
+  rules: RulesView | null;
+  openRules: (view: RulesView | null) => void;
   openComposer: (d: Draft) => void;
   openDiff: (a: number, b: number) => void;
   openSettings: (tab: SettingsTab | null) => void;
@@ -34,11 +43,13 @@ export const useUi = create<UiState>((set) => ({
   diff: null,
   settingsTab: null,
   compareMark: null,
+  rules: null,
+  openRules: (rules) => set({ rules }),
   openComposer: (composer) => set({ composer }),
   openDiff: (a, b) => set({ diff: [a, b], compareMark: null }),
   openSettings: (settingsTab) => set({ settingsTab }),
   markForCompare: (compareMark) => set({ compareMark }),
-  close: () => set({ composer: null, diff: null, settingsTab: null }),
+  close: () => set({ composer: null, diff: null, settingsTab: null, rules: null }),
 }));
 
 /** The engine's settings, cached for the toolbar. */

@@ -56,6 +56,7 @@ pub fn run() {
                 Err(e) => tracing::error!("could not restore previous proxy settings: {e}"),
             }
             app.manage(state);
+            commands::bridge_breakpoints(app.handle());
             if let Err(e) = tray::install(app.handle()) {
                 tracing::warn!("could not create the menu bar icon: {e}");
             }
@@ -88,6 +89,11 @@ pub fn run() {
             commands::import_flows,
             commands::repeat_flow,
             commands::send_request,
+            commands::get_rules,
+            commands::set_rules,
+            commands::list_breakpoints,
+            commands::resume_breakpoint,
+            commands::resume_all_breakpoints,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

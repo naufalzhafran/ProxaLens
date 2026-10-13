@@ -38,3 +38,25 @@ describe("JsonTree", () => {
     expect(html).toContain("Show 50 more of 50");
   });
 });
+
+describe("BreakpointDialog", () => {
+  it("shows an editable request with its countdown", async () => {
+    const { BreakpointDialog } = await import("./BreakpointDialog");
+    const hit = {
+      flowId: 7,
+      phase: "request" as const,
+      method: "POST",
+      url: "https://a.com/x",
+      status: null,
+      headers: [["Content-Type", "text/plain"]] as [string, string][],
+      body: { size: 2, truncated: false, text: "hi", base64: null },
+      deadline: Date.now() + 90_000,
+    };
+    const html = renderToStaticMarkup(<BreakpointDialog hits={[hit, { ...hit, flowId: 8 }]} />);
+    expect(html).toContain("Breakpoint · Request #7");
+    expect(html).toContain('value="https://a.com/x"');
+    expect(html).toContain("Content-Type: text/plain");
+    expect(html).toContain("1 more paused");
+    expect(html).toMatch(/Continues unchanged in 1:(29|30)/);
+  });
+});

@@ -2,7 +2,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-export type FlowState = "inProgress" | "completed" | "failed" | "webSocket" | "tunnel" | "blocked";
+export type FlowState = "inProgress" | "completed" | "failed" | "webSocket" | "tunnel" | "blocked" | "paused";
 
 export interface FlowMeta {
   id: number;
@@ -23,6 +23,8 @@ export interface FlowMeta {
   clientAddr: string;
   error: string | null;
   wsMessageCount: number;
+  /** Rules that changed this flow ("Map Local", "Rewrite", …). */
+  tags: string[];
 }
 
 export interface BodyView {
@@ -97,6 +99,75 @@ export interface OutgoingRequest {
   body: number[];
 }
 
+export interface Matcher {
+  id: string;
+  name: string;
+  enabled: boolean;
+  /** "" for any method. */
+  method: string;
+  url: string;
+  regex: boolean;
+}
+
+export interface MapLocalRule extends Matcher {
+  status: number;
+  headers: [string, string][];
+  body: string;
+  file: string;
+}
+
+export interface MapRemoteRule extends Matcher {
+  to: string;
+}
+
+export type RewriteTarget = "requestHeader" | "requestBody" | "responseHeader" | "responseBody" | "responseStatus";
+export type RewriteAction = "set" | "add" | "remove" | "replace";
+
+export interface RewriteRule extends Matcher {
+  target: RewriteTarget;
+  action: RewriteAction;
+  header: string;
+  find: string;
+  value: string;
+}
+
+export type BlockRule = Matcher;
+
+export interface BreakpointRule extends Matcher {
+  request: boolean;
+  response: boolean;
+}
+
+export interface Rules {
+  mapLocal: MapLocalRule[];
+  mapRemote: MapRemoteRule[];
+  rewrite: RewriteRule[];
+  block: BlockRule[];
+  breakpoints: BreakpointRule[];
+}
+
+export type Phase = "request" | "response";
+
+export interface BreakpointHit {
+  flowId: number;
+  phase: Phase;
+  method: string;
+  url: string;
+  status: number | null;
+  headers: [string, string][];
+  body: BodyView;
+  /** Epoch ms when the flow continues unchanged on its own. */
+  deadline: number;
+}
+
+export interface BreakpointEdits {
+  method: string;
+  url: string;
+  status: number;
+  headers: [string, string][];
+  body: number[];
+}
+
 export type FlowBatch =
   | { type: "upserts"; flows: FlowMeta[] }
   | { type: "cleared" }
@@ -125,6 +196,13 @@ export const api = {
   importFlows: (path: string, replace: boolean) => invoke<number>("import_flows", { path, replace }),
   repeatFlow: (id: number) => invoke<number | null>("repeat_flow", { id }),
   sendRequest: (request: OutgoingRequest) => invoke<number | null>("send_request", { request }),
+  getRules: () => invoke<Rules>("get_rules"),
+  setRules: (rules: Rules) => invoke<Rules>("set_rules", { rules }),
+  listBreakpoints: () => invoke<BreakpointHit[]>("list_breakpoints"),
+  resumeBreakpoint: (flowId: number, phase: Phase, abort: boolean, edits?: BreakpointEdits) =>
+    invoke<boolean>("resume_breakpoint", { flowId, phase, abort, edits }),
+  resumeAllBreakpoints: () => invoke<void>("resume_all_breakpoints"),
+  onBreakpointsChanged: (cb: () => void) => listen("breakpoints-changed", cb),
   /** Fires when the tray (or another command) changes proxy state. */
   onStatusChanged: (cb: () => void) => listen("status-changed", cb),
 };

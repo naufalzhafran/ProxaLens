@@ -141,6 +141,8 @@ pub struct Extra {
     pub response_truncated: bool,
     #[serde(default)]
     pub ws_messages: Vec<WsExtra>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -306,6 +308,7 @@ fn entry(m: &FlowMeta, d: &FlowData) -> Entry {
                     data: B64.encode(&w.payload),
                 })
                 .collect(),
+            tags: m.tags.clone(),
         }),
     }
 }
@@ -413,6 +416,7 @@ fn from_entry(e: Entry) -> (FlowMeta, FlowData) {
             .unwrap_or_default(),
         error: extra.as_ref().and_then(|x| x.error.clone()),
         ws_message_count: extra.as_ref().map_or(0, |x| x.ws_messages.len() as u32),
+        tags: extra.as_ref().map(|x| x.tags.clone()).unwrap_or_default(),
     };
     let data = FlowData {
         request_headers: pairs(e.request.headers),

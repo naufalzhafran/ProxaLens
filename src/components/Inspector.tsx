@@ -57,8 +57,17 @@ export function Inspector() {
       <div className="selectable flex items-start gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
         <div className="min-w-0 flex-1 break-all font-mono text-xs">
           <span className="font-semibold">{m.method}</span>{" "}
-          <span className={statusColor(m.status)}>{m.status ?? (m.state === "failed" ? "ERR" : "…")}</span> {m.url}
+          <span className={statusColor(m.status)}>{m.status ?? (m.state === "failed" ? "ERR" : m.state === "paused" ? "paused" : "…")}</span> {m.url}
           {m.error && <div className="mt-1 text-red-500">{m.error}</div>}
+          {m.tags.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {m.tags.map((t) => (
+                <span key={t} className="rounded bg-violet-100 px-1.5 text-[11px] text-violet-700 dark:bg-violet-950 dark:text-violet-300">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         {m.state !== "tunnel" && m.state !== "webSocket" && (
           <>

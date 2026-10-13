@@ -21,8 +21,10 @@ pub enum FlowState {
     WebSocket,
     /// HTTPS passed through without decryption (SSL Proxying settings).
     Tunnel,
-    /// Refused by the block list.
+    /// Refused by the block list or a block rule.
     Blocked,
+    /// Held at a breakpoint.
+    Paused,
 }
 
 /// Summary fields shown in the flow list.
@@ -50,6 +52,8 @@ pub struct FlowMeta {
     pub client_addr: String,
     pub error: Option<String>,
     pub ws_message_count: u32,
+    /// Rules that changed this flow ("Map Local", "Rewrite", …).
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -233,6 +237,7 @@ pub(crate) fn test_meta(path: &str) -> FlowMeta {
         client_addr: "127.0.0.1:1".into(),
         error: None,
         ws_message_count: 0,
+        tags: Vec::new(),
     }
 }
 

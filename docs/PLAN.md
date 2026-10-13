@@ -58,7 +58,18 @@ Update this checklist as work lands so any agent or device can pick up where the
     - TLS handshakes the client refuses are now captured from hudsucker's logs by a `tracing` layer (`engine/tlsfail.rs`). They're shown as failed CONNECT rows (repeats are folded into one row) and kept out of the terminal unless `PROJECT_PROXY_DEBUG` is set.
     - A "Don't Decrypt <host>" context action, and Apple's pinned services are excluded from SSL Proxying by default.
   - Tests: 45 Rust unit, 14 Rust e2e (decoding, block, allow, SSL tunnel, throttle, repeat), 37 vitest. The app was smoke-run with gzip and brotli traffic; clicking through the new dialogs still has to be done by hand.
-- [ ] Phase 4: Rules & breakpoints
+- [x] Phase 4: Rules & breakpoints
+  - Rules (`engine/rules.rs`, stored in `rules.json`, checked by `validate` before saving, compiled once): Map Local (inline body or file, Content-Type guessed), Map Remote (scheme/host replaced; path/query only if given), Rewrite (request/response header set/add/remove/regex-replace, body set/replace/append/clear, status), Block (URL patterns) and Breakpoint rules.
+  - Matching is by method plus a URL wildcard (`*`, `?`; a bare host pattern covers every path) or a regex. URLs drop default ports (`https://x.com:443` reads `https://x.com`).
+  - Pipeline (`proxy.rs`): block → request rewrite → request breakpoint → Map Local → Map Remote → upstream → response rewrite → response breakpoint → throttle.
+    - Rewrites run before breakpoints, so the user sees what will actually be sent.
+    - Only flows a rule touches are buffered. Compressed bodies are decoded for editing and sent uncompressed.
+    - Rules apply only to recorded traffic (not hosts the Allow list hides).
+    - Flows show which rules changed them (`tags`), and sessions keep the tags.
+  - Breakpoints (`engine/breakpoint.rs`, port of httpmon's controller): a oneshot per paused flow, a 5-minute timeout that continues unchanged, and a hit is withdrawn if the client disconnects. Stopping the proxy releases all of them. The flow state is `paused`. The UI gets a `breakpoints-changed` event, and the window comes to the front when a new flow pauses.
+  - UI: a Rules dialog (⌘L) with per-kind lists (enable, reorder, delete) and forms. Context menu: Breakpoint…, Map Local… (prefilled from the captured response), Map Remote…, Rewrite…, Block URL…. A breakpoint dialog with Execute / Abort / Continue All and a countdown.
+  - Tests: 60 Rust unit, 21 Rust e2e (every rule type, both breakpoint phases, rule validation), 42 vitest.
+  - Not done: the Block *list* stays host-based in Settings. Block *rules* are the URL-pattern version.
 - [ ] Phase 5: Scripting
 - [ ] Phase 6: Advanced
 

@@ -17,7 +17,7 @@ function detail(over: Partial<FlowDetail["meta"]> = {}, body = '{"a":1,"b":2}'):
       id: 1, method: "GET", scheme: "https", host: "x.com", path: "/a", url: "https://x.com/a",
       httpVersion: "HTTP/1.1", status: 200, state: "completed", contentType: "application/json",
       startedAt: 0, ttfbMs: 1, durationMs: 2, requestSize: 0, responseSize: body.length,
-      clientAddr: "", error: null, wsMessageCount: 0, ...over,
+      clientAddr: "", error: null, wsMessageCount: 0, tags: [], ...over,
     },
     requestHeaders: [["Accept", "*/*"]],
     requestBody: view(""),

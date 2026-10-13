@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api, type FlowMeta } from "../api";
-import { compareWith, dontDecrypt, editAndRepeat, files, repeat } from "../lib/actions";
+import { addRuleFor, compareWith, dontDecrypt, editAndRepeat, files, repeat } from "../lib/actions";
 import { copy } from "../lib/clipboard";
 import { formatCurl } from "../lib/curl";
 import { buildPredicate } from "../lib/filter";
@@ -127,7 +127,12 @@ export function FlowTable() {
                   <span className="font-semibold">{f.method}</span>
                   <span className={selected ? "" : statusColor(f.status)}>{statusLabel(f)}</span>
                   <span className="truncate">{f.host}</span>
-                  <span className="truncate" title={f.url}>
+                  <span className="truncate" title={f.tags.length ? `${f.url}\n${f.tags.join(", ")}` : f.url}>
+                    {f.tags.length > 0 && (
+                      <span className={`mr-1 rounded px-1 text-[10px] ${selected ? "bg-white/25" : "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"}`}>
+                        {f.tags.map((t) => t.split(" ")[0]).join(" · ")}
+                      </span>
+                    )}
                     {f.path}
                   </span>
                   <span className={`truncate ${selected ? "" : "text-neutral-500"}`}>
@@ -154,6 +159,7 @@ export function FlowTable() {
 
 function statusLabel(f: FlowMeta): string {
   if (f.state === "tunnel") return "TUN";
+  if (f.state === "paused") return "⏸";
   if (f.state === "blocked") return "BLK";
   if (f.state === "failed") return "ERR";
   if (f.state === "inProgress") return "…";
@@ -165,6 +171,7 @@ function rowClass(f: FlowMeta, selected: boolean, index: number): string {
   if (f.state === "failed" || f.state === "blocked")
     return "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300";
   if (f.state === "tunnel") return "text-neutral-400 italic";
+  if (f.state === "paused") return "bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
   if (f.state === "inProgress") return "text-neutral-500";
   return index % 2 ? "bg-neutral-50 dark:bg-neutral-900" : "";
 }
@@ -201,6 +208,12 @@ export function flowMenu(f: FlowMeta): MenuEntry[] {
       onSelect: () => compareWith(f.id),
     },
     { label: "Export as HAR…", onSelect: () => files.exportHar([f.id]) },
+    "separator",
+    { label: "Breakpoint…", disabled: !replayable, onSelect: () => addRuleFor(f.id, "breakpoints") },
+    { label: "Map Local…", disabled: !replayable, onSelect: () => addRuleFor(f.id, "mapLocal") },
+    { label: "Map Remote…", disabled: !replayable, onSelect: () => addRuleFor(f.id, "mapRemote") },
+    { label: "Rewrite…", disabled: !replayable, onSelect: () => addRuleFor(f.id, "rewrite") },
+    { label: "Block URL…", disabled: !replayable, onSelect: () => addRuleFor(f.id, "block") },
     "separator",
     ...(f.scheme === "https" && f.state !== "tunnel"
       ? [{ label: `Don’t Decrypt ${f.host}`, onSelect: () => dontDecrypt(f.host) }]

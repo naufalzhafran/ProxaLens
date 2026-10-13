@@ -11,7 +11,9 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::broadcast::error::TryRecvError;
 
+use crate::engine::breakpoint::{Edits, Phase, Resume};
 use crate::engine::repeat::OutgoingRequest;
+use crate::engine::rules::Rules;
 use crate::engine::settings::Settings;
 use crate::engine::store::{FlowEvent, FlowId, FlowMeta, WsDirection};
 use crate::engine::sysproxy::RestoreReport;
@@ -420,6 +422,101 @@ pub async fn send_request(
     request: OutgoingRequest,
 ) -> CmdResult<Option<FlowId>> {
     state.engine.send(request).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_rules(state: State<'_, AppState>) -> Rules {
+    state.engine.rules()
+}
+
+#[tauri::command]
+pub fn set_rules(state: State<'_, AppState>, rules: Rules) -> CmdResult<Rules> {
+    state.engine.set_rules(rules).map_err(|e| e.to_string())?;
+    Ok(state.engine.rules())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HitView {
+    flow_id: FlowId,
+    phase: Phase,
+    method: String,
+    url: String,
+    status: Option<u16>,
+    headers: Vec<(String, String)>,
+    body: BodyView,
+    deadline: u64,
+}
+
+/// Flows paused at a breakpoint, oldest first.
+#[tauri::command]
+pub fn list_breakpoints(state: State<'_, AppState>) -> Vec<HitView> {
+    state
+        .engine
+        .breakpoints
+        .pending()
+        .into_iter()
+        .map(|h| HitView {
+            flow_id: h.flow_id,
+            phase: h.phase,
+            method: h.method,
+            url: h.url,
+            status: h.status,
+            headers: h.headers,
+            body: BodyView::new(h.body, false),
+            deadline: h.deadline,
+        })
+        .collect()
+}
+
+/// Continues a paused flow with `edits`, or aborts it when `abort` is set.
+#[tauri::command]
+pub fn resume_breakpoint(
+    state: State<'_, AppState>,
+    flow_id: FlowId,
+    phase: Phase,
+    abort: bool,
+    edits: Option<Edits>,
+) -> bool {
+    let resume = if abort {
+        Resume::Abort
+    } else {
+        Resume::Continue(edits)
+    };
+    state.engine.breakpoints.resume(flow_id, phase, resume)
+}
+
+#[tauri::command]
+pub fn resume_all_breakpoints(state: State<'_, AppState>) {
+    state.engine.breakpoints.resume_all();
+}
+
+/// Tells the UI when flows are paused or resumed, and brings the window
+/// forward when a new one is paused.
+pub fn bridge_breakpoints(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let mut rx = state.engine.breakpoints.subscribe();
+    let breakpoints = state.engine.breakpoints.clone();
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut last = 0;
+        loop {
+            match rx.recv().await {
+                Ok(()) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(_) => return,
+            }
+            let n = breakpoints.pending().len();
+            if n > last
+                && let Some(w) = app.get_webview_window("main")
+            {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            last = n;
+            let _ = app.emit("breakpoints-changed", n);
+        }
+    });
 }
 
 #[derive(Clone, Serialize)]

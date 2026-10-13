@@ -2,10 +2,11 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, errorMessage, type FlowDetail, type OutgoingRequest } from "../api";
 import { useFlows } from "../state/flows";
-import { useSettings, useUi, type Draft } from "../state/ui";
+import { useSettings, useUi, type Draft, type RulesView } from "../state/ui";
 import { useToast } from "./clipboard";
 import { buildPredicate } from "./filter";
 import { bodyBytes } from "./http";
+import { mapLocalFrom, newRule, patternFor, type RuleKind } from "./rules";
 
 const toast = (m: string) => useToast.getState().show(m);
 
@@ -146,4 +147,12 @@ export async function dontDecrypt(host: string) {
   } catch (e) {
     toast(errorMessage(e));
   }
+}
+
+/** Opens the Rules dialog with a new rule for this flow's URL. */
+export async function addRuleFor(id: number, kind: RuleKind) {
+  const d = await api.getFlow(id);
+  if (!d) return;
+  const rule = kind === "mapLocal" ? mapLocalFrom(d) : { ...newRule(kind, patternFor(d.meta.url)), method: d.meta.method };
+  useUi.getState().openRules({ tab: kind, add: rule as unknown as RulesView["add"] });
 }

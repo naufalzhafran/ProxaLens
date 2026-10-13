@@ -1,11 +1,13 @@
 //! The proxy engine. Independent of Tauri so it can be tested on its own.
 
+pub mod breakpoint;
 pub mod ca;
 pub mod decode;
 pub mod guard;
 pub mod har;
 pub mod proxy;
 pub mod repeat;
+pub mod rules;
 pub mod settings;
 pub mod store;
 pub mod sysproxy;
@@ -26,9 +28,11 @@ use tokio::net::TcpListener;
 use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinHandle;
 
+use breakpoint::Breakpoints;
 use ca::CaBundle;
 use proxy::{FlowHandler, Recorder};
 use repeat::{OutgoingRequest, RepeatError};
+use rules::{CompiledRules, Rules};
 use settings::Settings;
 use store::{FlowData, FlowId, FlowMeta, Store};
 use sysproxy::{NetworkSetup, RestoreReport, SysProxyError};
@@ -59,6 +63,8 @@ pub enum EngineError {
     Har(#[from] har::HarError),
     #[error("{0}")]
     Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Rules(String),
 }
 
 pub struct EngineConfig {
@@ -93,6 +99,8 @@ pub struct Engine {
     pub store: Arc<Store>,
     pub ca: CaBundle,
     settings: Arc<parking_lot::RwLock<Settings>>,
+    rules: Arc<parking_lot::RwLock<Arc<CompiledRules>>>,
+    pub breakpoints: Arc<Breakpoints>,
     running: Mutex<Option<Running>>,
 }
 
@@ -100,10 +108,15 @@ impl Engine {
     pub fn new(cfg: EngineConfig) -> Result<Self, EngineError> {
         let ca = CaBundle::load_or_create(&cfg.data_dir.join("ca"))?;
         let settings = Settings::load(&cfg.data_dir.join("settings.json"));
+        let rules = Rules::load(&cfg.data_dir.join("rules.json"));
         Ok(Self {
             store: Arc::new(Store::new(cfg.buffer_size)),
             ca,
             settings: Arc::new(parking_lot::RwLock::new(settings)),
+            rules: Arc::new(parking_lot::RwLock::new(Arc::new(CompiledRules::new(
+                rules,
+            )))),
+            breakpoints: Arc::new(Breakpoints::new(breakpoint::DEFAULT_TIMEOUT)),
             cfg,
             running: Mutex::new(None),
         })
@@ -121,6 +134,18 @@ impl Engine {
     pub fn set_settings(&self, settings: Settings) -> Result<(), EngineError> {
         settings.save(&self.cfg.data_dir.join("settings.json"))?;
         *self.settings.write() = settings;
+        Ok(())
+    }
+
+    pub fn rules(&self) -> Rules {
+        self.rules.read().rules.clone()
+    }
+
+    /// Checks, saves and applies new rules (to requests that start after).
+    pub fn set_rules(&self, rules: Rules) -> Result<(), EngineError> {
+        rules.validate().map_err(EngineError::Rules)?;
+        rules.save(&self.cfg.data_dir.join("rules.json"))?;
+        *self.rules.write() = Arc::new(CompiledRules::new(rules));
         Ok(())
     }
 
@@ -195,6 +220,8 @@ impl Engine {
             self.store.clone(),
             self.cfg.body_cap,
             self.settings.clone(),
+            self.rules.clone(),
+            self.breakpoints.clone(),
         ));
         let (tx, rx) = oneshot::channel::<()>();
         let proxy = Proxy::builder()
@@ -219,6 +246,8 @@ impl Engine {
     }
 
     pub async fn stop(&self) {
+        // Paused flows would otherwise hold their connections open.
+        self.breakpoints.resume_all();
         let running = self.running.lock().await.take();
         if let Some(r) = running {
             let _ = r.shutdown.send(());

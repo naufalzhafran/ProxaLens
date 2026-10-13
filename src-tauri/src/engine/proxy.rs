@@ -4,6 +4,12 @@
 //! later phase). Bodies are captured with a tee so streaming responses (SSE,
 //! downloads) keep flowing to the client. Bodies are stored as received;
 //! decoding happens when the UI asks (see `decode.rs`).
+//!
+//! For recorded flows the rules in `rules.rs` apply in this order:
+//! block → request rewrite → request breakpoint → Map Local (skips the
+//! upstream) → Map Remote → upstream → response rewrite → response
+//! breakpoint → throttle. Only flows a rule or breakpoint touches are
+//! buffered; everything else streams.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -15,13 +21,20 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 use hudsucker::hyper::body::{Body as HttpBody, Frame, SizeHint};
-use hudsucker::hyper::{Method, Request, Response, StatusCode, Version, header};
+use hudsucker::hyper::header::{HeaderMap, HeaderName, HeaderValue};
+use hudsucker::hyper::{Method, Request, Response, StatusCode, Uri, Version, header};
 use hudsucker::tokio_tungstenite::tungstenite::Message;
 use hudsucker::{
     Body, HttpContext, HttpHandler, RequestOrResponse, WebSocketContext, WebSocketHandler,
 };
 use parking_lot::{Mutex, RwLock};
 
+use super::breakpoint::{Breakpoints, Edits, Hit, Phase, Resume};
+use super::decode;
+use super::rules::{
+    self, CompiledRules, MapLocal, RequestParts, ResponseParts, normalize_url, rewrite_request,
+    rewrite_response,
+};
 use super::settings::Settings;
 use super::store::{
     FlowData, FlowId, FlowMeta, FlowState, Store, WS_MESSAGES_CAP, WS_PAYLOAD_CAP, WsDirection,
@@ -44,16 +57,26 @@ pub struct Recorder {
     pub store: Arc<Store>,
     pub body_cap: usize,
     pub settings: Arc<RwLock<Settings>>,
+    pub rules: Arc<RwLock<Arc<CompiledRules>>>,
+    pub breakpoints: Arc<Breakpoints>,
     /// Upgraded WebSocket connections, keyed by the client's socket address.
     websockets: Mutex<HashMap<SocketAddr, FlowId>>,
 }
 
 impl Recorder {
-    pub fn new(store: Arc<Store>, body_cap: usize, settings: Arc<RwLock<Settings>>) -> Arc<Self> {
+    pub fn new(
+        store: Arc<Store>,
+        body_cap: usize,
+        settings: Arc<RwLock<Settings>>,
+        rules: Arc<RwLock<Arc<CompiledRules>>>,
+        breakpoints: Arc<Breakpoints>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             store,
             body_cap,
             settings,
+            rules,
+            breakpoints,
             websockets: Mutex::new(HashMap::new()),
         })
     }
@@ -66,6 +89,12 @@ pub struct FlowHandler {
     rec: Arc<Recorder>,
     flow: Option<(FlowId, Instant)>,
     host: String,
+    method: String,
+    /// The request URL after rules and breakpoint edits, default ports removed.
+    url: String,
+    /// Rules as they were when the request arrived.
+    rules: Option<Arc<CompiledRules>>,
+    break_on_response: bool,
 }
 
 impl FlowHandler {
@@ -74,7 +103,70 @@ impl FlowHandler {
             rec,
             flow: None,
             host: String::new(),
+            method: String::new(),
+            url: String::new(),
+            rules: None,
+            break_on_response: false,
         }
+    }
+
+    /// Notes on the flow that a rule changed it ("Map Local", …).
+    fn tag(&self, tag: impl Into<String>) {
+        if let Some((id, _)) = self.flow {
+            let tag = tag.into();
+            self.rec.store.update(id, |m, _| {
+                if !m.tags.contains(&tag) {
+                    m.tags.push(tag);
+                }
+            });
+        }
+    }
+
+    fn fail(&self, error: &str) {
+        if let Some((id, started)) = self.flow {
+            self.rec.store.update(id, |m, _| {
+                m.state = FlowState::Failed;
+                m.duration_ms = Some(elapsed_ms(started));
+                m.error = Some(error.to_string());
+            });
+        }
+    }
+
+    /// Pauses at a breakpoint, marking the flow as paused meanwhile.
+    async fn pause(
+        &self,
+        phase: Phase,
+        status: Option<u16>,
+        headers: &[(String, String)],
+        body: &[u8],
+    ) -> Resume {
+        let Some((id, _)) = self.flow else {
+            return Resume::Continue(None);
+        };
+        self.rec
+            .store
+            .update(id, |m, _| m.state = FlowState::Paused);
+        let resume = self
+            .rec
+            .breakpoints
+            .pause(Hit {
+                flow_id: id,
+                phase,
+                method: self.method.clone(),
+                url: self.url.clone(),
+                status,
+                headers: headers.to_vec(),
+                body: body.to_vec(),
+                deadline: 0,
+            })
+            .await;
+        self.rec.store.update(id, |m, _| {
+            if m.state == FlowState::Paused {
+                m.state = FlowState::InProgress;
+            }
+        });
+        self.tag("Breakpoint");
+        resume
     }
 
     /// Records a CONNECT that won't be decrypted (blocked or tunnelled).
@@ -103,6 +195,7 @@ impl FlowHandler {
             client_addr: ctx.client_addr.to_string(),
             error: (state == FlowState::Blocked).then(|| BLOCKED.to_string()),
             ws_message_count: 0,
+            tags: Vec::new(),
         };
         let data = FlowData {
             request_headers: headers_vec(req.headers()),
@@ -115,11 +208,7 @@ impl FlowHandler {
 const BLOCKED: &str = "Blocked by the block list";
 
 fn blocked_response() -> Response<Body> {
-    Response::builder()
-        .status(StatusCode::FORBIDDEN)
-        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
-        .body(Body::from(format!("Project Proxy: {BLOCKED}.")))
-        .expect("static response")
+    text_response(StatusCode::FORBIDDEN, &format!("{BLOCKED}."))
 }
 
 fn headers_vec(h: &header::HeaderMap) -> Vec<(String, String)> {
@@ -155,6 +244,95 @@ fn is_websocket_upgrade(req: &Request<Body>) -> bool {
         .is_some_and(|v| v.eq_ignore_ascii_case("websocket"))
 }
 
+/// Reads a whole body; used only for flows a rule or breakpoint edits.
+async fn collect(body: Body) -> Result<Vec<u8>, String> {
+    use http_body_util::BodyExt;
+    body.collect()
+        .await
+        .map(|c| c.to_bytes().to_vec())
+        .map_err(|e| e.to_string())
+}
+
+/// Removes the Content-Encoding so the body can be read and edited; the
+/// edited body is sent uncompressed.
+fn decode_for_edit(headers: &mut Vec<(String, String)>, body: &mut Vec<u8>) {
+    let encoding = headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-encoding"))
+        .map(|(_, v)| v.clone());
+    if let Ok(Some(d)) = decode::decode(body, encoding.as_deref())
+        && !d.partial
+    {
+        *body = d.bytes;
+        headers.retain(|(k, _)| !k.eq_ignore_ascii_case("content-encoding"));
+    }
+}
+
+/// Builds a header map for a rebuilt message, fixing its framing headers.
+fn build_headers(headers: &[(String, String)], body_len: Option<usize>) -> HeaderMap {
+    let mut map = HeaderMap::new();
+    for (k, v) in headers {
+        if k.eq_ignore_ascii_case("content-length") || k.eq_ignore_ascii_case("transfer-encoding") {
+            continue;
+        }
+        if let (Ok(k), Ok(v)) = (
+            HeaderName::from_bytes(k.trim().as_bytes()),
+            HeaderValue::from_str(v.trim()),
+        ) {
+            map.append(k, v);
+        }
+    }
+    if let Some(len) = body_len {
+        map.insert(header::CONTENT_LENGTH, HeaderValue::from(len));
+    }
+    map
+}
+
+fn text_response(status: StatusCode, msg: &str) -> Response<Body> {
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .body(Body::from(format!("Project Proxy: {msg}")))
+        .expect("static response")
+}
+
+const ABORTED: &str = "Aborted at a breakpoint";
+
+async fn map_local_response(rule: &MapLocal) -> Result<Response<Body>, String> {
+    let body = if rule.file.trim().is_empty() {
+        rule.body.clone().into_bytes()
+    } else {
+        tokio::fs::read(rule.file.trim())
+            .await
+            .map_err(|e| format!("Map Local could not read {}: {e}", rule.file))?
+    };
+    let mut headers = rule.headers.clone();
+    if !headers
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+        && let Some(ct) = rules::content_type_for(&rule.file)
+    {
+        headers.push(("Content-Type".into(), ct.into()));
+    }
+    let mut res = Response::new(Body::empty());
+    *res.status_mut() = StatusCode::from_u16(rule.status).unwrap_or(StatusCode::OK);
+    *res.headers_mut() = build_headers(&headers, Some(body.len()));
+    *res.body_mut() = Body::from(body);
+    Ok(res)
+}
+
+fn split_url(url: &str) -> (String, String, String) {
+    match url.parse::<Uri>() {
+        Ok(u) => (
+            u.scheme_str().unwrap_or("http").to_string(),
+            u.host().unwrap_or_default().to_string(),
+            u.path_and_query()
+                .map_or("/".into(), |p| p.as_str().to_string()),
+        ),
+        Err(_) => ("http".into(), String::new(), url.to_string()),
+    }
+}
+
 impl HttpHandler for FlowHandler {
     async fn handle_request(&mut self, ctx: &HttpContext, req: Request<Body>) -> RequestOrResponse {
         // CONNECT only opens a tunnel; the requests inside it are recorded,
@@ -173,7 +351,8 @@ impl HttpHandler for FlowHandler {
         }
 
         let uri = req.uri();
-        let scheme = uri.scheme_str().unwrap_or("http").to_string();
+        let url = normalize_url(&uri.to_string());
+        let (scheme, _, path) = split_url(&url);
         let host = uri
             .host()
             .map(str::to_string)
@@ -184,13 +363,12 @@ impl HttpHandler for FlowHandler {
                     .map(str::to_string)
             })
             .unwrap_or_default();
-        let path = uri
-            .path_and_query()
-            .map(|p| p.as_str().to_string())
-            .unwrap_or_else(|| "/".into());
+        let method = req.method().to_string();
         let websocket = is_websocket_upgrade(&req);
         self.host = host.clone();
         let policy = self.rec.settings.read().policy(&host);
+        // Rules apply to recorded traffic only, so that what they change is
+        // always visible.
         if !policy.record {
             return if policy.block {
                 blocked_response().into()
@@ -198,11 +376,13 @@ impl HttpHandler for FlowHandler {
                 req.into()
             };
         }
+        let rules = self.rec.rules.read().clone();
+        let rule_blocked = rules.is_blocked(&method, &url);
 
         let meta = FlowMeta {
             id: 0,
-            method: req.method().to_string(),
-            url: uri.to_string(),
+            method: method.clone(),
+            url: url.clone(),
             scheme,
             host,
             path,
@@ -222,6 +402,7 @@ impl HttpHandler for FlowHandler {
             client_addr: ctx.client_addr.to_string(),
             error: None,
             ws_message_count: 0,
+            tags: Vec::new(),
         };
         let data = FlowData {
             request_headers: headers_vec(req.headers()),
@@ -230,8 +411,13 @@ impl HttpHandler for FlowHandler {
         let id = self.rec.store.add(meta, data);
         let started = Instant::now();
         self.flow = Some((id, started));
+        self.method = method;
+        self.url = url;
 
-        if policy.block {
+        if policy.block || rule_blocked {
+            if rule_blocked {
+                self.tag("Block");
+            }
             self.rec.store.update(id, |m, _| {
                 m.state = FlowState::Blocked;
                 m.status = Some(403);
@@ -253,8 +439,113 @@ impl HttpHandler for FlowHandler {
             return req.into();
         }
 
+        let (mut parts, mut body) = req.into_parts();
+        let (break_request, break_response) = rules.breakpoint(&self.method, &self.url);
+        self.break_on_response = break_response;
+        let rewrites = rules.rewrites(&self.method, &self.url, true);
+
+        if break_request || !rewrites.is_empty() {
+            let bytes = match collect(body).await {
+                Ok(b) => b,
+                Err(e) => {
+                    self.fail(&e);
+                    return text_response(StatusCode::BAD_GATEWAY, &e).into();
+                }
+            };
+            let mut req = RequestParts {
+                method: self.method.clone(),
+                url: self.url.clone(),
+                headers: headers_vec(&parts.headers),
+                body: bytes,
+            };
+            let edits_body = break_request || rewrites.iter().any(|(r, _)| r.target.is_body());
+            if edits_body {
+                decode_for_edit(&mut req.headers, &mut req.body);
+            }
+            if !rewrites.is_empty() {
+                let before = req.clone();
+                rewrite_request(&mut req, &rewrites);
+                if req != before {
+                    self.tag("Rewrite");
+                }
+            }
+            if break_request {
+                match self
+                    .pause(Phase::Request, None, &req.headers, &req.body)
+                    .await
+                {
+                    Resume::Abort => {
+                        self.fail(ABORTED);
+                        return text_response(StatusCode::BAD_GATEWAY, ABORTED).into();
+                    }
+                    Resume::Continue(Some(Edits {
+                        method,
+                        url,
+                        headers,
+                        body,
+                        ..
+                    })) => {
+                        if !method.trim().is_empty() {
+                            req.method = method.trim().to_ascii_uppercase();
+                        }
+                        if !url.trim().is_empty() {
+                            req.url = url.trim().to_string();
+                        }
+                        req.headers = headers;
+                        req.body = body;
+                    }
+                    Resume::Continue(None) => {}
+                }
+            }
+
+            if let Ok(m) = Method::from_bytes(req.method.as_bytes()) {
+                parts.method = m;
+            }
+            if let Ok(u) = req.url.parse::<Uri>()
+                && u.scheme().is_some()
+                && u.authority().is_some()
+            {
+                parts.uri = u;
+            }
+            self.method = parts.method.to_string();
+            self.url = normalize_url(&parts.uri.to_string());
+            let has_body =
+                !req.body.is_empty() || parts.headers.contains_key(header::CONTENT_LENGTH);
+            parts.headers = build_headers(&req.headers, has_body.then_some(req.body.len()));
+            body = Body::from(req.body);
+            let (method, url, headers) = (
+                self.method.clone(),
+                self.url.clone(),
+                headers_vec(&parts.headers),
+            );
+            self.rec.store.update(id, |m, d| {
+                let (scheme, host, path) = split_url(&url);
+                (m.method, m.url, m.scheme, m.host, m.path) = (method, url, scheme, host, path);
+                d.request_headers = headers;
+            });
+        }
+
+        // Map Local answers without contacting the server.
+        if let Some(rule) = rules.map_local(&self.method, &self.url) {
+            self.tag("Map Local");
+            self.rules = Some(rules.clone());
+            let res = match map_local_response(rule).await {
+                Ok(res) => res,
+                Err(e) => text_response(StatusCode::INTERNAL_SERVER_ERROR, &e),
+            };
+            return self.finish_response(res).await.into();
+        }
+
+        if let Some(rule) = rules.map_remote(&self.method, &self.url)
+            && let Some(to) = rules::map_remote_url(&self.url, &rule.to)
+            && let Ok(uri) = to.parse::<Uri>()
+        {
+            parts.uri = uri;
+            self.tag(format!("Map Remote → {to}"));
+        }
+        self.rules = Some(rules);
+
         let store = self.rec.store.clone();
-        let (parts, body) = req.into_parts();
         let body = CaptureBody::wrap(body, self.rec.body_cap, move |cap| {
             store.update(id, |m, d| {
                 m.request_size = cap.total;
@@ -278,6 +569,82 @@ impl HttpHandler for FlowHandler {
     }
 
     async fn handle_response(&mut self, _ctx: &HttpContext, res: Response<Body>) -> Response<Body> {
+        self.finish_response(res).await
+    }
+
+    async fn handle_error(
+        &mut self,
+        _ctx: &HttpContext,
+        err: hudsucker::hyper_util::client::legacy::Error,
+    ) -> Response<Body> {
+        let msg = error_chain(&err);
+        self.fail(&msg);
+        text_response(
+            StatusCode::BAD_GATEWAY,
+            &format!("upstream request failed: {msg}"),
+        )
+    }
+}
+
+impl FlowHandler {
+    /// Response side: rewrite, breakpoint, throttle, then record.
+    async fn finish_response(&mut self, res: Response<Body>) -> Response<Body> {
+        let ttfb = self.flow.map(|(_, started)| elapsed_ms(started));
+        let mut res = res;
+        if let Some(rules) = self.rules.clone()
+            && self.flow.is_some()
+        {
+            let rewrites = rules.rewrites(&self.method, &self.url, false);
+            if !rewrites.is_empty() || self.break_on_response {
+                let (mut parts, body) = res.into_parts();
+                let bytes = match collect(body).await {
+                    Ok(b) => b,
+                    Err(e) => {
+                        self.fail(&e);
+                        return text_response(StatusCode::BAD_GATEWAY, &e);
+                    }
+                };
+                let mut r = ResponseParts {
+                    status: parts.status.as_u16(),
+                    headers: headers_vec(&parts.headers),
+                    body: bytes,
+                };
+                if self.break_on_response || rewrites.iter().any(|(rw, _)| rw.target.is_body()) {
+                    decode_for_edit(&mut r.headers, &mut r.body);
+                }
+                if !rewrites.is_empty() {
+                    let before = r.clone();
+                    rewrite_response(&mut r, &rewrites);
+                    if r != before {
+                        self.tag("Rewrite");
+                    }
+                }
+                if self.break_on_response {
+                    match self
+                        .pause(Phase::Response, Some(r.status), &r.headers, &r.body)
+                        .await
+                    {
+                        Resume::Abort => {
+                            self.fail(ABORTED);
+                            return text_response(StatusCode::BAD_GATEWAY, ABORTED);
+                        }
+                        Resume::Continue(Some(e)) => {
+                            if e.status != 0 {
+                                r.status = e.status;
+                            }
+                            r.headers = e.headers;
+                            r.body = e.body;
+                        }
+                        Resume::Continue(None) => {}
+                    }
+                }
+                parts.status = StatusCode::from_u16(r.status).unwrap_or(parts.status);
+                let body_len = (self.method != "HEAD").then_some(r.body.len());
+                parts.headers = build_headers(&r.headers, body_len);
+                res = Response::from_parts(parts, Body::from(r.body));
+            }
+        }
+
         let throttle = self.rec.settings.read().throttle_for(&self.host);
         let res = match throttle {
             Some((bytes_per_sec, latency_ms)) => {
@@ -292,7 +659,6 @@ impl HttpHandler for FlowHandler {
         let Some((id, started)) = self.flow else {
             return res;
         };
-        let ttfb = elapsed_ms(started);
         let headers = headers_vec(res.headers());
         let content_type = res
             .headers()
@@ -303,7 +669,7 @@ impl HttpHandler for FlowHandler {
         let version = version_str(res.version());
         self.rec.store.update(id, |m, d| {
             m.status = Some(status);
-            m.ttfb_ms = Some(ttfb);
+            m.ttfb_ms = ttfb;
             m.content_type = content_type;
             m.http_version = version.into();
             d.response_headers = headers;
@@ -327,29 +693,6 @@ impl HttpHandler for FlowHandler {
             });
         });
         Response::from_parts(parts, body)
-    }
-
-    async fn handle_error(
-        &mut self,
-        _ctx: &HttpContext,
-        err: hudsucker::hyper_util::client::legacy::Error,
-    ) -> Response<Body> {
-        let msg = error_chain(&err);
-        if let Some((id, started)) = self.flow {
-            let msg = msg.clone();
-            self.rec.store.update(id, |m, _| {
-                m.state = FlowState::Failed;
-                m.duration_ms = Some(elapsed_ms(started));
-                m.error = Some(msg);
-            });
-        }
-        Response::builder()
-            .status(StatusCode::BAD_GATEWAY)
-            .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
-            .body(Body::from(format!(
-                "Project Proxy: upstream request failed: {msg}"
-            )))
-            .expect("static response")
     }
 }
 

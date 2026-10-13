@@ -17,7 +17,7 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
   const [port, setPort] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null);
   const settings = useSettings((s) => s.settings);
-  const { openComposer, openSettings } = useUi.getState();
+  const { openComposer, openSettings, openRules } = useUi.getState();
 
   useEffect(() => {
     useSettings.getState().refresh().catch((e) => onError(errorMessage(e)));
@@ -141,6 +141,10 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
         onClick={(e) => showMenu(e, throttleMenu)}
       >
         {throttleLabel} ▾
+      </button>
+
+      <button className={button} title="Map Local, Map Remote, Rewrite, Block, Breakpoints (⌘L)" onClick={() => openRules({ tab: "mapLocal" })}>
+        Rules…
       </button>
 
       <div className="ml-auto flex items-center gap-2">

@@ -3399,6 +3399,7 @@ dependencies = [
  "hyper-util",
  "libc",
  "parking_lot",
+ "regex",
  "reqwest",
  "rustls-native-certs",
  "serde",

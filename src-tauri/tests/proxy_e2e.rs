@@ -15,7 +15,12 @@ use hudsucker::hyper_util::rt::TokioIo;
 use hudsucker::rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use hudsucker::rustls::ServerConfig;
 use hudsucker::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use project_proxy_lib::engine::breakpoint::{Edits, Phase, Resume};
 use project_proxy_lib::engine::repeat::OutgoingRequest;
+use project_proxy_lib::engine::rules::{
+    BlockRule, BreakpointRule, MapLocal, MapRemote, Matcher, Rewrite, RewriteAction, RewriteTarget,
+    Rules,
+};
 use project_proxy_lib::engine::settings::{HostList, Settings};
 use project_proxy_lib::engine::store::{FlowMeta, FlowState};
 use project_proxy_lib::engine::{Engine, EngineConfig, decode};
@@ -23,12 +28,18 @@ use tokio::net::TcpListener;
 
 async fn route(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     let path = req.uri().path().to_string();
+    let auth = req
+        .headers()
+        .get("authorization")
+        .map(|v| v.to_str().unwrap().to_string())
+        .unwrap_or_default();
     let body = req.into_body().collect().await.unwrap().to_bytes();
     let res = match path.as_str() {
         "/hello" => Response::builder()
             .header("content-type", "application/json")
             .body(Full::new(Bytes::from_static(br#"{"hello":"world"}"#))),
         "/echo" => Response::builder().status(201).body(Full::new(body)),
+        "/auth" => Response::builder().body(Full::new(Bytes::from(auth))),
         "/big" => Response::builder().body(Full::new(Bytes::from(vec![b'x'; 10_000]))),
         "/gzip" => {
             use std::io::Write;
@@ -488,4 +499,309 @@ async fn send_requires_a_running_proxy_and_a_valid_url() {
         .await
         .unwrap_err();
     assert!(err.to_string().contains("start the proxy"));
+}
+
+fn matching(url: &str) -> Matcher {
+    Matcher {
+        url: url.into(),
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn https_urls_drop_the_default_port() {
+    let (up, root) = https_upstream().await;
+    let h = harness(vec![root], None).await;
+    h.client
+        .get(format!("https://localhost:{}/hello", up.port()))
+        .send()
+        .await
+        .unwrap();
+    let f = h.wait_done("/hello").await;
+    assert_eq!(f.url, format!("https://localhost:{}/hello", up.port()));
+    assert!(!f.url.contains(":443"));
+}
+
+#[tokio::test]
+async fn map_local_answers_without_the_server() {
+    let h = harness(vec![], None).await;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("mock.json");
+    std::fs::write(&file, r#"{"mocked":true}"#).unwrap();
+    h.engine
+        .set_rules(Rules {
+            map_local: vec![
+                MapLocal {
+                    matcher: matching("http://nowhere.invalid/inline"),
+                    status: 418,
+                    headers: vec![("X-Mock".into(), "yes".into())],
+                    body: "short and stout".into(),
+                    file: String::new(),
+                },
+                MapLocal {
+                    matcher: matching("nowhere.invalid/file*"),
+                    status: 200,
+                    file: file.to_string_lossy().into_owned(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        })
+        .unwrap();
+
+    let res = h
+        .client
+        .get("http://nowhere.invalid/inline")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 418);
+    assert_eq!(res.headers()["x-mock"], "yes");
+    assert_eq!(res.text().await.unwrap(), "short and stout");
+
+    let res = h
+        .client
+        .get("http://nowhere.invalid/file?x=1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.headers()["content-type"], "application/json");
+    assert_eq!(res.text().await.unwrap(), r#"{"mocked":true}"#);
+
+    let f = h.wait_done("/inline").await;
+    assert_eq!((f.status, f.state), (Some(418), FlowState::Completed));
+    assert_eq!(f.tags, vec!["Map Local"]);
+    let (_, d) = h.engine.store.get(f.id).unwrap();
+    assert_eq!(d.response_body, b"short and stout");
+}
+
+#[tokio::test]
+async fn map_remote_sends_the_request_elsewhere() {
+    let up = http_upstream().await;
+    let h = harness(vec![], None).await;
+    h.engine
+        .set_rules(Rules {
+            map_remote: vec![MapRemote {
+                matcher: matching("api.example.invalid"),
+                to: format!("http://{up}"),
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+    let res = h
+        .client
+        .get("http://api.example.invalid/hello")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.text().await.unwrap(), r#"{"hello":"world"}"#);
+    let f = h.wait_done("/hello").await;
+    assert_eq!(
+        f.host, "api.example.invalid",
+        "the flow keeps the original URL"
+    );
+    assert_eq!(f.tags, vec![format!("Map Remote → http://{up}/hello")]);
+}
+
+#[tokio::test]
+async fn rewrite_edits_requests_and_decoded_responses() {
+    let up = http_upstream().await;
+    let h = harness(vec![], None).await;
+    let rw = |target, action, header: &str, find: &str, value: &str| Rewrite {
+        matcher: matching("*"),
+        target,
+        action,
+        header: header.into(),
+        find: find.into(),
+        value: value.into(),
+    };
+    h.engine
+        .set_rules(Rules {
+            rewrite: vec![
+                rw(
+                    RewriteTarget::RequestHeader,
+                    RewriteAction::Set,
+                    "Authorization",
+                    "",
+                    "Bearer test",
+                ),
+                rw(
+                    RewriteTarget::ResponseBody,
+                    RewriteAction::Replace,
+                    "",
+                    "decoded",
+                    "rewritten",
+                ),
+                rw(
+                    RewriteTarget::ResponseHeader,
+                    RewriteAction::Add,
+                    "X-Rewritten",
+                    "",
+                    "1",
+                ),
+                rw(
+                    RewriteTarget::ResponseStatus,
+                    RewriteAction::Set,
+                    "",
+                    "",
+                    "299",
+                ),
+            ],
+            ..Default::default()
+        })
+        .unwrap();
+
+    let res = h
+        .client
+        .get(format!("http://{up}/auth"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.text().await.unwrap(), "Bearer test");
+
+    // The gzip body is decoded, edited and sent uncompressed.
+    let res = h
+        .client
+        .get(format!("http://{up}/gzip"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 299);
+    assert!(res.headers().get("content-encoding").is_none());
+    assert_eq!(res.headers()["x-rewritten"], "1");
+    assert_eq!(res.text().await.unwrap(), "rewritten text");
+    let f = h.wait_done("/gzip").await;
+    assert_eq!(f.tags, vec!["Rewrite"]);
+}
+
+#[tokio::test]
+async fn block_rule_matches_urls() {
+    let up = http_upstream().await;
+    let h = harness(vec![], None).await;
+    h.engine
+        .set_rules(Rules {
+            block: vec![BlockRule {
+                matcher: matching("*/big"),
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        h.client
+            .get(format!("http://{up}/big"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        h.client
+            .get(format!("http://{up}/hello"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(h.wait_done("/big").await.state, FlowState::Blocked);
+}
+
+async fn wait_for_hit(h: &Harness, phase: Phase) -> project_proxy_lib::engine::breakpoint::Hit {
+    for _ in 0..200 {
+        if let Some(hit) = h
+            .engine
+            .breakpoints
+            .pending()
+            .into_iter()
+            .find(|x| x.phase == phase)
+        {
+            return hit;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("no breakpoint hit");
+}
+
+#[tokio::test]
+async fn breakpoints_edit_requests_and_abort_responses() {
+    let up = http_upstream().await;
+    let h = harness(vec![], None).await;
+    h.engine
+        .set_rules(Rules {
+            breakpoints: vec![
+                BreakpointRule {
+                    matcher: matching("*/echo"),
+                    request: true,
+                    response: false,
+                },
+                BreakpointRule {
+                    matcher: matching("*/hello"),
+                    request: false,
+                    response: true,
+                },
+            ],
+            ..Default::default()
+        })
+        .unwrap();
+
+    // Request phase: change the body before it reaches the server.
+    let client = h.client.clone();
+    let url = format!("http://{up}/echo");
+    let sent = tokio::spawn(async move {
+        client
+            .post(url)
+            .body("original")
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap()
+    });
+    let hit = wait_for_hit(&h, Phase::Request).await;
+    assert_eq!(hit.body, b"original");
+    let paused = h.engine.store.get(hit.flow_id).unwrap().0;
+    assert_eq!(paused.state, FlowState::Paused);
+    let edits = Edits {
+        headers: hit.headers.clone(),
+        body: b"edited at breakpoint".to_vec(),
+        ..Default::default()
+    };
+    assert!(h.engine.breakpoints.resume(
+        hit.flow_id,
+        Phase::Request,
+        Resume::Continue(Some(edits))
+    ));
+    assert_eq!(sent.await.unwrap(), "edited at breakpoint");
+    let f = h.wait_done("/echo").await;
+    assert_eq!(f.tags, vec!["Breakpoint"]);
+
+    // Response phase: abort.
+    let client = h.client.clone();
+    let url = format!("http://{up}/hello");
+    let got = tokio::spawn(async move { client.get(url).send().await.unwrap().status() });
+    let hit = wait_for_hit(&h, Phase::Response).await;
+    assert_eq!(hit.status, Some(200));
+    assert_eq!(hit.body, br#"{"hello":"world"}"#);
+    h.engine
+        .breakpoints
+        .resume(hit.flow_id, Phase::Response, Resume::Abort);
+    assert_eq!(got.await.unwrap(), 502);
+    let f = h.wait_done("/hello").await;
+    assert_eq!(f.state, FlowState::Failed);
+}
+
+#[tokio::test]
+async fn invalid_rules_are_refused() {
+    let h = harness(vec![], None).await;
+    let bad = Rules {
+        map_remote: vec![MapRemote {
+            matcher: matching("*"),
+            to: "no-scheme".into(),
+        }],
+        ..Default::default()
+    };
+    assert!(h.engine.set_rules(bad).is_err());
+    assert_eq!(h.engine.rules(), Rules::default());
 }
