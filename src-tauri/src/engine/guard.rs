@@ -1,4 +1,4 @@
-//! Watchdog for layer 3 of the system proxy crash safety (see docs/PLAN.md).
+//! Watchdog for layer 3 of the system proxy crash safety (see `sysproxy.rs`).
 //!
 //! The app re-executes its own binary as `<exe> --guard <pid> <marker>` in a
 //! new process group, so the watchdog survives a crash, `kill -9`, or a

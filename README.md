@@ -2,8 +2,6 @@
 
 A free, Proxyman-style HTTP/HTTPS debugging proxy for macOS. Built with Tauri v2, a Rust proxy engine ([hudsucker](https://github.com/omjadas/hudsucker)), and React + TypeScript.
 
-See [docs/PLAN.md](docs/PLAN.md) for the design, roadmap and progress.
-
 ## Features
 - **Capture:** an HTTP/HTTPS MITM proxy on `127.0.0.1:9090` that starts with the app. HTTP/1.1, HTTP/2 and WebSocket are supported. Bodies over 5 MB are stored truncated but forwarded whole.
 - **Certificate:** a root CA generated per install. One click trusts it in your login keychain (macOS asks for your password).
@@ -23,6 +21,10 @@ See [docs/PLAN.md](docs/PLAN.md) for the design, roadmap and progress.
 - **Scripts:** JavaScript `onRequest`/`onResponse` hooks in httpmon's file format, with an in-app editor (Monaco).
 - **Devices:** phones and tablets on your network (setup page with a QR code), and certificate install in iOS Simulators.
 - **MCP server:** lets agents such as Claude Code list, search and replay traffic, add mocks and manage scripts. It's off by default; turn it on under Settings → General.
+
+## Not yet supported
+- A privileged helper for password-free proxy switching (it needs a signed app).
+- Windows.
 
 ## Development
 Requirements: Rust (via `rustup`), Node 20+, and Xcode command line tools.

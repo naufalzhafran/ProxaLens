@@ -1,6 +1,6 @@
 //! macOS system proxy control with crash-safe restore.
 //!
-//! See "System proxy crash safety" in docs/PLAN.md. In short:
+//! Crash safety comes in layers:
 //! 1. Snapshot every network service's HTTP/HTTPS proxy and write a marker
 //!    file *before* changing anything.
 //! 2. Restore from the marker on every exit the app can observe.
