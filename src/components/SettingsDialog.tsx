@@ -101,7 +101,7 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
                 />
                 <span className="text-muted">The proxy restarts on a new port, and the system proxy follows it.</span>
               </label>
-              <Help>How “Proxy On” points this Mac at the proxy.</Help>
+              <Help>How “System Proxy” points this Mac at the proxy.</Help>
               {(
                 [
                   ["manual", "HTTP and HTTPS proxy settings", "Works with nearly every app. If the app is killed, your settings are restored by the watchdog."],

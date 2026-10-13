@@ -163,7 +163,7 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
             }`}
           />
         </span>
-        Proxy {on ? "On" : "Off"}
+        System Proxy
       </button>
 
       <StatusPill status={status} onClick={details.open} />
