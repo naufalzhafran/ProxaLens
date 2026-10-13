@@ -38,7 +38,7 @@ Update this checklist as work lands so any agent or device can pick up where the
     - The process column and "Apps" tree need process identification (Phase 6).
     - Compressed bodies show as binary until body decoding lands (Phase 3).
   - Tests: 28 vitest (the httpmon filter and cURL tests are ported). The UI was smoke-run in `tauri dev` with curl traffic; clicking through it and checking the tray menu still has to be done by hand.
-- [ ] Phase 3: Debug tools, MVP release
+- [ ] Phase 3: Debug tools
 - [ ] Phase 4: Rules & breakpoints
 - [ ] Phase 5: Scripting
 - [ ] Phase 6: Advanced
@@ -134,13 +134,12 @@ httpmon (`internal/browse/sysproxy_darwin.go`) keeps the saved proxy settings on
 - Context menu: copy URL, copy as cURL (port `tui/curl.go`), copy response, pin domain.
 - Onboarding: certificate setup wizard and a "Proxy On/Off" toolbar toggle; tray icon.
 
-**Phase 3: Debug tools, MVP release (1–2 weeks)**
+**Phase 3: Debug tools (1–2 weeks)**
 - Body decoding: gzip/deflate/br/zstd.
 - HAR import/export (port `har/har.go`); save/open sessions.
 - Repeat / Edit-and-Repeat / Compose (via `reqwest`, captured as new flows); diff two flows.
 - Block/Allow lists and an SSL Proxying include/exclude list (Proxyman-style per-domain SSL enable).
 - Network throttle presets (port `throttle/`).
-- Sign + notarize the DMG through GitHub Actions (`tauri-action`); add the Tauri updater.
 
 **Phase 4: Rules & breakpoints (2–3 weeks)**
 - GUI rule editors: Map Local (file or inline body), Map Remote (host/path rewrite), Rewrite (header/body/status regex), Block.
@@ -159,6 +158,7 @@ httpmon (`internal/browse/sysproxy_darwin.go`) keeps the saved proxy settings on
 - MCP server (`rmcp`), mirroring `mcpserver/` tools.
 - Privileged `SMAppService` helper for prompt-free proxy switching and watchdog duty; optional PAC auto-config mode.
 - Later: Windows support (WinINet proxy, `certutil` trust store).
+- Later: a signed, notarized DMG release built by GitHub Actions (`tauri-action`), plus the Tauri updater. This was taken out of Phase 3.
 
 ## Verification
 - **Unit:** `cargo test` for store, filter, rules, decode, script (ported from httpmon's tests); `vitest` for UI state and cURL generation.
