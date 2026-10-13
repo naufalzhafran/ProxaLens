@@ -5,6 +5,7 @@ pub mod ca;
 pub mod decode;
 pub mod guard;
 pub mod har;
+pub mod procinfo;
 pub mod proto;
 pub mod proxy;
 pub mod repeat;
@@ -106,6 +107,7 @@ pub struct Engine {
     pub breakpoints: Arc<Breakpoints>,
     pub scripts: Arc<Scripts>,
     pub proto: proto::Registries,
+    pub processes: Arc<procinfo::Resolver>,
     running: Mutex<Option<Running>>,
 }
 
@@ -114,8 +116,9 @@ impl Engine {
         let ca = CaBundle::load_or_create(&cfg.data_dir.join("ca"))?;
         let settings = Settings::load(&cfg.data_dir.join("settings.json"));
         let rules = Rules::load(&cfg.data_dir.join("rules.json"));
+        let store = Arc::new(Store::new(cfg.buffer_size));
         Ok(Self {
-            store: Arc::new(Store::new(cfg.buffer_size)),
+            store: store.clone(),
             ca,
             settings: Arc::new(parking_lot::RwLock::new(settings)),
             rules: Arc::new(parking_lot::RwLock::new(Arc::new(CompiledRules::new(
@@ -127,6 +130,7 @@ impl Engine {
                 script::DEFAULT_TIMEOUT,
             )),
             proto: proto::Registries::default(),
+            processes: procinfo::Resolver::new(Arc::new(procinfo::Darwin), store.clone()),
             cfg,
             running: Mutex::new(None),
         })
@@ -217,6 +221,7 @@ impl Engine {
         let addr = listener
             .local_addr()
             .map_err(|source| EngineError::Bind { addr: bind, source })?;
+        self.processes.set_proxy_port(addr.port());
 
         let tls = upstream_tls_config(&self.cfg.extra_upstream_roots)?;
         let https = hyper_rustls::HttpsConnectorBuilder::new()
@@ -233,6 +238,7 @@ impl Engine {
             self.rules.clone(),
             self.breakpoints.clone(),
             self.scripts.clone(),
+            self.processes.clone(),
         ));
         let (tx, rx) = oneshot::channel::<()>();
         let proxy = Proxy::builder()

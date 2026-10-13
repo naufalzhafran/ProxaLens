@@ -30,6 +30,16 @@ export function groupByDomain(order: number[], byId: Record<number, FlowMeta>): 
     .sort((a, b) => a.domain.localeCompare(b.domain));
 }
 
+/** Apps that made requests, by number of flows. */
+export function groupByApp(order: number[], byId: Record<number, FlowMeta>): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const id of order) {
+    const p = byId[id].process;
+    if (p) counts.set(p, (counts.get(p) ?? 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
 export function Sidebar() {
   const order = useFlows((s) => s.order);
   const byId = useFlows((s) => s.byId);
@@ -41,6 +51,7 @@ export function Sidebar() {
   const [menu, setMenu] = useState<{ x: number; y: number; value: string } | null>(null);
 
   const groups = useMemo(() => groupByDomain(order, byId), [order, byId]);
+  const apps = useMemo(() => groupByApp(order, byId), [order, byId]);
   const counts = useMemo(() => new Map(groups.map((g) => [g.domain, g.count])), [groups]);
 
   const isSelected = (s: Scope) =>
@@ -77,6 +88,21 @@ export function Sidebar() {
               selected={isSelected({ kind: "domain", value: p })}
               onClick={() => setScope({ kind: "domain", value: p })}
               onContextMenu={(e) => onContextMenu(e, p)}
+            />
+          ))}
+        </>
+      )}
+
+      {apps.length > 0 && (
+        <>
+          <Heading>Apps</Heading>
+          {apps.map(([app, count]) => (
+            <Row
+              key={app}
+              label={app}
+              count={count}
+              selected={isSelected({ kind: "app", value: app })}
+              onClick={() => setScope({ kind: "app", value: app })}
             />
           ))}
         </>

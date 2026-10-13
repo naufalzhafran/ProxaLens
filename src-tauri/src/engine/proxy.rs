@@ -61,6 +61,7 @@ pub struct Recorder {
     pub rules: Arc<RwLock<Arc<CompiledRules>>>,
     pub breakpoints: Arc<Breakpoints>,
     pub scripts: Arc<Scripts>,
+    pub processes: Arc<super::procinfo::Resolver>,
     /// Upgraded WebSocket connections, keyed by the client's socket address.
     websockets: Mutex<HashMap<SocketAddr, FlowId>>,
 }
@@ -73,6 +74,7 @@ impl Recorder {
         rules: Arc<RwLock<Arc<CompiledRules>>>,
         breakpoints: Arc<Breakpoints>,
         scripts: Arc<Scripts>,
+        processes: Arc<super::procinfo::Resolver>,
     ) -> Arc<Self> {
         Arc::new(Self {
             store,
@@ -81,6 +83,7 @@ impl Recorder {
             rules,
             breakpoints,
             scripts,
+            processes,
             websockets: Mutex::new(HashMap::new()),
         })
     }
@@ -212,12 +215,15 @@ impl FlowHandler {
             error: (state == FlowState::Blocked).then(|| BLOCKED.to_string()),
             ws_message_count: 0,
             tags: Vec::new(),
+            process: None,
+            pid: None,
         };
         let data = FlowData {
             request_headers: headers_vec(req.headers()),
             ..Default::default()
         };
-        self.rec.store.add(meta, data);
+        let id = self.rec.store.add(meta, data);
+        self.rec.processes.resolve(id, ctx.client_addr);
     }
 }
 
@@ -423,12 +429,15 @@ impl HttpHandler for FlowHandler {
             error: None,
             ws_message_count: 0,
             tags: Vec::new(),
+            process: None,
+            pid: None,
         };
         let data = FlowData {
             request_headers: headers_vec(req.headers()),
             ..Default::default()
         };
         let id = self.rec.store.add(meta, data);
+        self.rec.processes.resolve(id, ctx.client_addr);
         let started = Instant::now();
         self.flow = Some((id, started));
         self.method = method;

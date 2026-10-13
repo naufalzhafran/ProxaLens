@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FlowMeta } from "../api";
 import { formatBytes, formatDuration, shortContentType } from "../lib/format";
-import { groupByDomain } from "../components/Sidebar";
+import { groupByApp, groupByDomain } from "../components/Sidebar";
 import { applyBatch, fromList, MAX_FLOWS, toggle } from "./flows";
 
 function flow(id: number, over: Partial<FlowMeta> = {}): FlowMeta {
@@ -24,7 +24,7 @@ function flow(id: number, over: Partial<FlowMeta> = {}): FlowMeta {
     clientAddr: "127.0.0.1:5000",
     error: null,
     wsMessageCount: 0,
-    tags: [],
+    tags: [], process: null, pid: null,
     ...over,
   };
 }
@@ -74,6 +74,21 @@ describe("groupByDomain", () => {
     expect(groupByDomain(order, byId)).toEqual([
       { domain: "example.com", count: 3, hosts: [["api.example.com", 2], ["example.com", 1]] },
       { domain: "other.io", count: 1, hosts: [["cdn.other.io", 1]] },
+    ]);
+  });
+});
+
+describe("groupByApp", () => {
+  it("counts flows per app, most active first", () => {
+    const { order, byId } = fromList([
+      flow(1, { process: "Safari" }),
+      flow(2, { process: "curl" }),
+      flow(3, { process: "curl" }),
+      flow(4),
+    ]);
+    expect(groupByApp(order, byId)).toEqual([
+      ["curl", 2],
+      ["Safari", 1],
     ]);
   });
 });

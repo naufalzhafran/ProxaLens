@@ -13,7 +13,7 @@ import { ContextMenu, type MenuEntry } from "./ui";
 
 const ROW_HEIGHT = 24;
 const COLUMNS =
-  "grid-cols-[48px_60px_48px_minmax(110px,1fr)_minmax(150px,2fr)_64px_64px_64px_92px]";
+  "grid-cols-[48px_minmax(70px,0.6fr)_60px_48px_minmax(110px,1fr)_minmax(150px,2fr)_64px_64px_64px_92px]";
 
 export function FlowTable() {
   const order = useFlows((s) => s.order);
@@ -70,6 +70,7 @@ export function FlowTable() {
         className={`grid ${COLUMNS} gap-2 border-b border-neutral-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:border-neutral-800`}
       >
         <span>#</span>
+        <span>App</span>
         <span>Method</span>
         <span>Status</span>
         <span>Host</span>
@@ -124,6 +125,9 @@ export function FlowTable() {
                   )}`}
                 >
                   <span className={selected ? "" : "text-neutral-400"}>{f.id}</span>
+                  <span className="truncate font-sans" title={f.pid ? `${f.process} (pid ${f.pid})` : undefined}>
+                    {f.process ?? ""}
+                  </span>
                   <span className="font-semibold">{f.method}</span>
                   <span className={selected ? "" : statusColor(f.status)}>{statusLabel(f)}</span>
                   <span className="truncate">{f.host}</span>
@@ -223,5 +227,6 @@ export function flowMenu(f: FlowMeta): MenuEntry[] {
       onSelect: () => togglePin(domain),
     },
     { label: `Show Only ${f.host}`, onSelect: () => setScope({ kind: "host", value: f.host }) },
+    ...(f.process ? [{ label: `Show Only ${f.process}`, onSelect: () => setScope({ kind: "app", value: f.process! }) }] : []),
   ];
 }

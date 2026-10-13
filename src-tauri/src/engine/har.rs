@@ -143,6 +143,10 @@ pub struct Extra {
     pub ws_messages: Vec<WsExtra>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -309,6 +313,8 @@ fn entry(m: &FlowMeta, d: &FlowData) -> Entry {
                 })
                 .collect(),
             tags: m.tags.clone(),
+            process: m.process.clone(),
+            pid: m.pid,
         }),
     }
 }
@@ -417,6 +423,8 @@ fn from_entry(e: Entry) -> (FlowMeta, FlowData) {
         error: extra.as_ref().and_then(|x| x.error.clone()),
         ws_message_count: extra.as_ref().map_or(0, |x| x.ws_messages.len() as u32),
         tags: extra.as_ref().map(|x| x.tags.clone()).unwrap_or_default(),
+        process: extra.as_ref().and_then(|x| x.process.clone()),
+        pid: extra.as_ref().and_then(|x| x.pid),
     };
     let data = FlowData {
         request_headers: pairs(e.request.headers),

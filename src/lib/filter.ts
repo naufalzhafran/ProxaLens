@@ -5,6 +5,7 @@
 //   m:post         method, case-insensitive (alias `method:`)
 //   ct:json        content-type substring (alias `type:`)
 //   re:/v[12]/     regex on host+path
+//   app:chrome     the app that made the request (alias `p:`)
 //   anything else  case-insensitive substring on host+path
 import type { FlowMeta } from "../api";
 
@@ -46,6 +47,9 @@ function compileTerm(s: string): Matcher {
         return (f) => (f.contentType ?? "").toLowerCase().includes(val.toLowerCase());
       case "re":
         return compileRegex(val);
+      case "app":
+      case "p":
+        return (f) => (f.process ?? "").toLowerCase().includes(val.toLowerCase());
     }
   }
   const q = s.toLowerCase();
@@ -86,12 +90,13 @@ export function statusClass(f: FlowMeta): StatusClass | null {
   return (STATUS_CLASSES as readonly string[]).includes(c) ? (c as StatusClass) : null;
 }
 
-/** What the sidebar has selected: one host, or a domain and its subdomains. */
-export type Scope = { kind: "host" | "domain"; value: string } | null;
+/** What the sidebar has selected: one host, a domain and its subdomains, or an app. */
+export type Scope = { kind: "host" | "domain" | "app"; value: string } | null;
 
 export function inScope(f: FlowMeta, scope: Scope): boolean {
   if (!scope) return true;
   if (scope.kind === "host") return f.host === scope.value;
+  if (scope.kind === "app") return f.process === scope.value;
   return f.host === scope.value || f.host.endsWith(`.${scope.value}`);
 }
 

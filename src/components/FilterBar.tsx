@@ -9,6 +9,7 @@ const HELP =
   "m:post         method\n" +
   "ct:json        content type\n" +
   "re:/v[12]/     regex on host+path\n" +
+  "app:chrome     app that made the request\n" +
   "text           host+path contains";
 
 export const FilterBar = forwardRef<HTMLInputElement>(function FilterBar(_, ref) {
@@ -47,7 +48,7 @@ export const FilterBar = forwardRef<HTMLInputElement>(function FilterBar(_, ref)
       ))}
       {scope && (
         <span className="ml-auto flex items-center gap-1 rounded-full bg-neutral-200 px-2 py-0.5 text-[11px] dark:bg-neutral-800">
-          {scope.kind === "domain" ? "Domain" : "Host"}: {scope.value}
+          {{ domain: "Domain", host: "Host", app: "App" }[scope.kind]}: {scope.value}
           <button className="opacity-60 hover:opacity-100" aria-label="Clear scope" onClick={() => setScope(null)}>
             ✕
           </button>

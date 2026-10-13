@@ -54,6 +54,9 @@ pub struct FlowMeta {
     pub ws_message_count: u32,
     /// Rules that changed this flow ("Map Local", "Rewrite", …).
     pub tags: Vec<String>,
+    /// The app that made the request, when it could be identified.
+    pub process: Option<String>,
+    pub pid: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -238,6 +241,8 @@ pub(crate) fn test_meta(path: &str) -> FlowMeta {
         error: None,
         ws_message_count: 0,
         tags: Vec::new(),
+        process: None,
+        pid: None,
     }
 }
 

@@ -17,7 +17,7 @@ function detail(body = view('{"a":1}', { encoding: "gzip", encodedSize: 20 })): 
       id: 1, method: "POST", scheme: "https", host: "x.com", path: "/a", url: "https://x.com/a",
       httpVersion: "HTTP/1.1", status: 200, state: "completed", contentType: null, startedAt: 0,
       ttfbMs: null, durationMs: null, requestSize: 7, responseSize: 0, clientAddr: "", error: null,
-      wsMessageCount: 0, tags: [],
+      wsMessageCount: 0, tags: [], process: null, pid: null,
     },
     requestHeaders: [
       ["Host", "x.com"],

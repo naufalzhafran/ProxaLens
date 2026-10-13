@@ -32,7 +32,7 @@ function flow(method: string, status: number | null, host: string, path: string,
     clientAddr: "127.0.0.1:1",
     error: null,
     wsMessageCount: 0,
-    tags: [],
+    tags: [], process: null, pid: null,
   };
 }
 
@@ -74,6 +74,13 @@ describe("compileFilter", () => {
     expect(match("re:/v[12]/users", flow("GET", 200, "x.com", "/v1/users"))).toBe(true);
     expect(match("re:/v[12]/users", flow("GET", 200, "x.com", "/v3/users"))).toBe(false);
     expect(match("re:(", flow("GET", 200, "x.com", "/"))).toBe(false);
+  });
+
+  it("filters by app", () => {
+    const f = { ...flow("GET", 200, "x.com", "/"), process: "Google Chrome" };
+    expect(match("app:chrome", f)).toBe(true);
+    expect(match("p:safari", f)).toBe(false);
+    expect(buildPredicate({ text: "", methods: [], statuses: [], scope: { kind: "app", value: "Google Chrome" } })(f)).toBe(true);
   });
 
   it("negates terms with !", () => {

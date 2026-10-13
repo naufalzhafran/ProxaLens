@@ -25,6 +25,9 @@ export interface FlowMeta {
   wsMessageCount: number;
   /** Rules that changed this flow ("Map Local", "Rewrite", …). */
   tags: string[];
+  /** The app that made the request, when known. */
+  process: string | null;
+  pid: number | null;
 }
 
 export interface BodyView {

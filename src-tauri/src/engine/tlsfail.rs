@@ -198,6 +198,8 @@ pub fn recorder(store: Arc<Store>) -> impl Fn(HandshakeFailure) + Send + Sync + 
             error: Some(error),
             ws_message_count: 0,
             tags: Vec::new(),
+            process: None,
+            pid: None,
         };
         let id = store.add(meta, FlowData::default());
         last.insert(f.authority, (id, 1));
