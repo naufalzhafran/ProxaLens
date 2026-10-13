@@ -34,8 +34,8 @@ export function Composer({ initial }: { initial: Draft }) {
       onClose={close}
       footer={
         <>
-          {error && <span className="mr-auto text-red-500">{error}</span>}
-          <span className="mr-2 text-neutral-500">The response appears as a new flow.</span>
+          {error && <span className="mr-auto text-st-server">{error}</span>}
+          <span className="mr-2 text-muted">The response appears as a new flow.</span>
           <button className={button} onClick={close}>
             Cancel
           </button>
@@ -77,7 +77,7 @@ export function Composer({ initial }: { initial: Draft }) {
           />
         </div>
         <label className="flex flex-col gap-1">
-          <span className="text-neutral-500">Headers (one “Name: value” per line)</span>
+          <span className="text-muted">Headers (one “Name: value” per line)</span>
           <textarea
             spellCheck={false}
             rows={8}
@@ -87,9 +87,9 @@ export function Composer({ initial }: { initial: Draft }) {
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-neutral-500">Body</span>
+          <span className="text-muted">Body</span>
           {draft.binaryBody ? (
-            <div className="flex items-center gap-2 rounded-md bg-neutral-100 p-2 dark:bg-neutral-800">
+            <div className="flex items-center gap-2 rounded-md bg-surface p-2">
               <span className="flex-1">
                 Binary body ({formatBytes(draft.binaryBody.length)}) is sent unchanged.
               </span>

@@ -28,13 +28,13 @@ export function DiffView({ ids }: { ids: [number, number] }) {
 
   return (
     <Modal title={`Compare #${ids[0]} with #${ids[1]}`} onClose={close} wide>
-      {error && <p className="text-red-500">{error}</p>}
+      {error && <p className="text-st-server">{error}</p>}
       {flows && diffs && (
         <>
           <div className="mb-3 grid grid-cols-2 gap-3 font-mono">
             {flows.map((f) => (
-              <div key={f.meta.id} className="truncate rounded-md bg-neutral-100 px-2 py-1 dark:bg-neutral-800">
-                <span className="text-neutral-500">#{f.meta.id}</span> {f.meta.method} {f.meta.status ?? "—"} {f.meta.url}
+              <div key={f.meta.id} className="truncate rounded-md bg-surface px-2 py-1">
+                <span className="text-muted">#{f.meta.id}</span> {f.meta.method} {f.meta.status ?? "—"} {f.meta.url}
               </div>
             ))}
           </div>
@@ -54,7 +54,7 @@ export function DiffView({ ids }: { ids: [number, number] }) {
 }
 
 function Lines({ lines }: { lines: DiffLine[] }) {
-  if (!hasChanges(lines)) return <p className="p-3 text-neutral-500">No differences.</p>;
+  if (!hasChanges(lines)) return <p className="p-3 text-muted">No differences.</p>;
   return (
     <pre className="selectable mt-2 font-mono text-xs">
       {lines.map((l, i) => (
@@ -62,13 +62,13 @@ function Lines({ lines }: { lines: DiffLine[] }) {
           key={i}
           className={`whitespace-pre-wrap break-all px-2 ${
             l.type === "add"
-              ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+              ? "bg-st-ok/10 text-st-ok"
               : l.type === "del"
-                ? "bg-red-50 text-red-800 dark:bg-red-950/50 dark:text-red-300"
+                ? "bg-st-server/10 text-st-server"
                 : ""
           }`}
         >
-          <span className="mr-2 select-none text-neutral-400">{l.type === "add" ? "+" : l.type === "del" ? "−" : " "}</span>
+          <span className="mr-2 select-none text-muted">{l.type === "add" ? "+" : l.type === "del" ? "−" : " "}</span>
           {l.text || " "}
         </div>
       ))}

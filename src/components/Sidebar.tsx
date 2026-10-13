@@ -1,6 +1,6 @@
 // Left pane: all traffic, pinned domains, and a domain → host tree.
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Pin } from "lucide-react";
+import { ChevronRight, Pin } from "lucide-react";
 import type { FlowMeta } from "../api";
 import type { Scope } from "../lib/filter";
 import { baseDomain } from "../lib/http";
@@ -110,7 +110,7 @@ export function Sidebar() {
       )}
 
       <Heading>Domains</Heading>
-      {groups.length === 0 && <p className="px-3 py-1 text-neutral-500">None yet</p>}
+      {groups.length === 0 && <p className="px-3 py-1 text-muted">None yet</p>}
       {groups.map((g) => {
         const single = g.hosts.length === 1 && g.hosts[0][0] === g.domain;
         const open = expanded[g.domain] ?? false;
@@ -148,7 +148,7 @@ export function Sidebar() {
 
 function Heading({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="mt-3 mb-0.5 px-3 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+    <h3 className="mt-3 mb-0.5 px-3 text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">
       {children}
     </h3>
   );
@@ -177,18 +177,22 @@ export function Row({
 }) {
   return (
     <div
-      className={`mx-1 flex items-center rounded ${indent ? "pl-5" : ""} ${
-        selected ? "bg-sky-600 text-white" : "hover:bg-neutral-200/60 dark:hover:bg-neutral-800"
+      className={`mx-1 flex items-center rounded-md ${indent ? "pl-5" : ""} ${
+        selected ? "bg-select font-semibold text-ink" : "hover:bg-ink/6"
       }`}
     >
       {caret !== undefined ? (
         <button
           tabIndex={-1}
-          className="flex w-5 shrink-0 justify-center self-stretch opacity-60"
+          className="flex w-5 shrink-0 items-center justify-center self-stretch text-muted"
           aria-label={caret ? `Collapse ${label}` : `Expand ${label}`}
           onClick={onCaret}
         >
-          {caret ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <ChevronRight
+            size={12}
+            strokeWidth={2}
+            className={`transition-transform duration-150 motion-reduce:transition-none ${caret ? "rotate-90" : ""}`}
+          />
         </button>
       ) : (
         <span className="w-5 shrink-0" />
@@ -212,7 +216,7 @@ export function Row({
       >
         {icon}
         <span className="flex-1 truncate">{label}</span>
-        {count !== undefined && <span className={selected ? "opacity-80" : "text-neutral-400"}>{count}</span>}
+        {count !== undefined && <span className="font-normal text-muted tabular-nums">{count}</span>}
       </button>
     </div>
   );

@@ -99,8 +99,8 @@ export function RulesDialog({ view }: { view: RulesView }) {
       onClose={cancel}
       footer={
         <>
-          {error && <span className="mr-auto text-red-500">{error}</span>}
-          <span className="mr-2 text-neutral-500">The first matching Map Local / Map Remote rule wins; all matching rewrites apply in order.</span>
+          {error && <span className="mr-auto text-st-server">{error}</span>}
+          <span className="mr-2 text-muted">The first matching Map Local / Map Remote rule wins; all matching rewrites apply in order.</span>
           <button className={button} onClick={cancel}>
             Cancel
           </button>
@@ -142,7 +142,7 @@ export function RulesDialog({ view }: { view: RulesView }) {
                 }
               }}
               className={`group flex cursor-default items-start gap-2 rounded-md px-2 py-1 ${
-                r.id === selected ? "bg-sky-600 text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                r.id === selected ? "bg-select text-ink" : "hover:bg-ink/6"
               }`}
             >
               <input
@@ -155,7 +155,7 @@ export function RulesDialog({ view }: { view: RulesView }) {
               />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium">{r.name || r.url || "Untitled rule"}</div>
-                <div className={`truncate text-[11px] ${r.id === selected ? "opacity-80" : "text-neutral-500"}`}>
+                <div className="truncate text-[11px] text-muted">
                   {r.method && `${r.method} · `}
                   {ruleSummary(tab, r)}
                 </div>
@@ -181,11 +181,11 @@ export function RulesDialog({ view }: { view: RulesView }) {
             + Add rule
           </button>
         </div>
-        <div className="min-w-0 flex-1 border-l border-neutral-200 pl-3 dark:border-neutral-800">
+        <div className="min-w-0 flex-1 border-l border-line pl-3">
           {current ? (
             <RuleForm key={current.id} kind={tab} rule={current} onChange={update} />
           ) : (
-            <p className="text-neutral-500">{help[tab]}</p>
+            <p className="text-muted">{help[tab]}</p>
           )}
         </div>
       </div>
@@ -204,9 +204,9 @@ const help: Record<RuleKind, string> = {
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-neutral-500">{label}</span>
+      <span className="text-muted">{label}</span>
       {children}
-      {hint && <span className="text-[11px] text-neutral-400">{hint}</span>}
+      {hint && <span className="text-[11px] text-muted">{hint}</span>}
     </label>
   );
 }
@@ -258,7 +258,7 @@ function RuleForm({ kind, rule, onChange }: { kind: RuleKind; rule: AnyRule; onC
   return (
     <div className="flex flex-col gap-3">
       <MatcherFields rule={rule} onChange={(m) => onChange({ ...rule, ...m })} />
-      <div className="h-px bg-neutral-200 dark:bg-neutral-800" />
+      <div className="h-px bg-line" />
       {kind === "mapLocal" && <MapLocalFields rule={rule as MapLocalRule} onChange={onChange} />}
       {kind === "mapRemote" && (
         <Field label="Send to" hint="Scheme and host are replaced; the path and query are kept unless you give new ones.">
@@ -286,7 +286,7 @@ function RuleForm({ kind, rule, onChange }: { kind: RuleKind; rule: AnyRule; onC
           ))}
         </div>
       )}
-      {kind === "block" && <p className="text-neutral-500">Matching requests get 403 Forbidden.</p>}
+      {kind === "block" && <p className="text-muted">Matching requests get 403 Forbidden.</p>}
     </div>
   );
 }

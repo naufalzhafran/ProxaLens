@@ -56,6 +56,32 @@ monaco.typescript.javascriptDefaults.setCompilerOptions({
 });
 monaco.typescript.javascriptDefaults.addExtraLib(CTX_TYPES, "ts:proxalens/ctx.d.ts");
 
+// Editor themes on the ProxaLens tokens (see index.css).
+monaco.editor.defineTheme("proxalens-light", {
+  base: "vs",
+  inherit: true,
+  rules: [],
+  colors: {
+    "editor.background": "#ffffff",
+    "editor.lineHighlightBackground": "#f4f4f1",
+    "editorLineNumber.foreground": "#5b5e58",
+    "editor.selectionBackground": "#d3ebe6",
+    "editorCursor.foreground": "#0b7466",
+  },
+});
+monaco.editor.defineTheme("proxalens-dark", {
+  base: "vs-dark",
+  inherit: true,
+  rules: [],
+  colors: {
+    "editor.background": "#252726",
+    "editor.lineHighlightBackground": "#1c1d1c",
+    "editorLineNumber.foreground": "#a4a8a2",
+    "editor.selectionBackground": "#1a3d37",
+    "editorCursor.foreground": "#46c7b2",
+  },
+});
+
 loader.config({ monaco });
 
 export { monaco };

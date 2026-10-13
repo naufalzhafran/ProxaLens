@@ -1,5 +1,6 @@
 // Collapsible JSON viewer. Children render only when expanded, so large
 // documents stay cheap.
+import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 const PAGE = 200;
@@ -20,8 +21,8 @@ function Node({ name, value, depth, last }: { name: string | null; value: Json; 
   const comma = last ? "" : ",";
   const label = name !== null && (
     <>
-      <span className="text-purple-700 dark:text-purple-300">{JSON.stringify(name)}</span>
-      <span className="text-neutral-500">: </span>
+      <span className="text-accent">{JSON.stringify(name)}</span>
+      <span className="text-muted">: </span>
     </>
   );
 
@@ -61,12 +62,16 @@ function Node({ name, value, depth, last }: { name: string | null; value: Json; 
         className="block w-full cursor-default text-left"
         onClick={() => setOpen(!open)}
       >
-        <span className="inline-block w-3 text-[9px] text-neutral-400">{open ? "▼" : "▶"}</span>
+        <ChevronRight
+          size={11}
+          strokeWidth={2}
+          className={`mr-0.5 inline-block align-[-1px] text-muted transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
+        />
         {label}
         {openB}
         {!open && (
           <>
-            <span className="text-neutral-400">
+            <span className="text-muted">
               {" "}
               {entries.length} {isArray ? (entries.length === 1 ? "item" : "items") : entries.length === 1 ? "key" : "keys"}{" "}
             </span>
@@ -89,7 +94,7 @@ function Node({ name, value, depth, last }: { name: string | null; value: Json; 
           {shown < entries.length && (
             <button
               style={{ marginLeft: (depth + 1) * 14 + 12 }}
-              className="text-sky-600 hover:underline"
+              className="text-accent hover:underline"
               onClick={() => setShown(shown + PAGE)}
             >
               Show {Math.min(PAGE, entries.length - shown)} more of {entries.length - shown}…
@@ -107,7 +112,7 @@ function Node({ name, value, depth, last }: { name: string | null; value: Json; 
 
 function Scalar({ value }: { value: null | boolean | number | string }) {
   if (typeof value === "string")
-    return <span className="break-all text-emerald-700 dark:text-emerald-400">{JSON.stringify(value)}</span>;
-  if (typeof value === "number") return <span className="text-sky-700 dark:text-sky-400">{value}</span>;
-  return <span className="text-orange-600 dark:text-orange-400">{String(value)}</span>;
+    return <span className="break-all text-st-ok">{JSON.stringify(value)}</span>;
+  if (typeof value === "number") return <span className="text-st-redirect">{value}</span>;
+  return <span className="text-st-client">{String(value)}</span>;
 }

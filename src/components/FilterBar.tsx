@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import { forwardRef, useState } from "react";
 import { METHODS, STATUS_CLASSES } from "../lib/filter";
 import { useFlows } from "../state/flows";
@@ -37,10 +38,10 @@ export const FilterBar = forwardRef<HTMLInputElement>(function FilterBar(_, ref)
       : toggles(STATUS_CLASSES, statuses, toggleStatus, statusLabel);
 
   return (
-    <div className="flex items-center gap-1 border-b border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
+    <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
       <input
         ref={ref}
-        className="min-w-0 max-w-80 flex-1 rounded-md border border-neutral-300 bg-transparent px-2 py-0.5 font-mono text-xs dark:border-neutral-700"
+        className="min-w-0 max-w-80 flex-1 rounded-ds bg-ink/6 px-2.5 py-1 font-mono text-xs placeholder:text-muted"
         placeholder="Filter (⌘F)  e.g. m:post s:4xx api"
         title={HELP}
         spellCheck={false}
@@ -51,7 +52,7 @@ export const FilterBar = forwardRef<HTMLInputElement>(function FilterBar(_, ref)
       <MenuButton label="Method" active={methods} onClick={(e) => showMenu(e, "method")} />
       <MenuButton label="Status" active={statuses.map(statusLabel)} onClick={(e) => showMenu(e, "status")} />
       {scope && (
-        <span className="ml-auto flex min-w-0 shrink items-center gap-1 rounded-full bg-neutral-200 px-2 py-0.5 text-[11px] dark:bg-neutral-800">
+        <span className="ml-auto flex min-w-0 shrink items-center gap-1 rounded-full bg-select px-2 py-0.5 text-[11px] font-medium">
           <span className="truncate" title={scope.value}>
             {{ domain: "Domain", host: "Host", app: "App" }[scope.kind]}: {scope.value}
           </span>
@@ -79,12 +80,13 @@ function MenuButton({ label, active, onClick }: { label: string; active: string[
   const text = active.length === 0 ? label : active.length === 1 ? `${label}: ${active[0]}` : `${label} · ${active.length}`;
   return (
     <button
-      className={`${button} shrink-0 ${active.length ? "border-sky-500 text-sky-700 dark:text-sky-300" : ""}`}
+      className={`${button} flex shrink-0 items-center gap-1 ${active.length ? "bg-select! text-ink" : ""}`}
       aria-haspopup="menu"
       title={active.length ? active.join(", ") : undefined}
       onClick={onClick}
     >
-      {text} ▾
+      {text}
+      <ChevronDown size={12} className="shrink-0" />
     </button>
   );
 }

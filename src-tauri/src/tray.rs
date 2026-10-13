@@ -2,6 +2,7 @@
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
+use tauri::image::Image;
 use tauri::{AppHandle, Manager, Wry};
 
 use crate::commands::{self, AppState};
@@ -62,8 +63,15 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             QUIT => app.exit(0),
             _ => {}
         });
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
+    // A single-color template glyph, which macOS tints for light and dark bars.
+    match Image::from_bytes(include_bytes!("../icons/tray.png")) {
+        Ok(icon) => builder = builder.icon(icon).icon_as_template(true),
+        Err(e) => {
+            tracing::warn!("could not load the menu bar glyph: {e}");
+            if let Some(icon) = app.default_window_icon() {
+                builder = builder.icon(icon.clone());
+            }
+        }
     }
     builder.build(app)?;
     app.manage(TrayItems {

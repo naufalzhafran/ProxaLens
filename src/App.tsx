@@ -136,7 +136,10 @@ export default function App() {
       )}
       {status && !status.recording && (
         <Banner tone="warn">
-          Recording is paused. Traffic still goes through the proxy and rules still apply, but nothing new is listed.{" "}
+          Recording is paused.{" "}
+          {status.systemProxyEnabled
+            ? "This Mac’s traffic still goes through the proxy and rules still apply, but nothing new is listed."
+            : "Apps pointed at the proxy still go through it and rules still apply, but nothing new is listed."}{" "}
           <button
             className="underline"
             onClick={() => api.setRecording(true).then(setStatus).catch((e) => setError(errorMessage(e)))}
@@ -154,11 +157,11 @@ export default function App() {
         </Banner>
       )}
       <div ref={panes} className="flex min-h-0 flex-1">
-        <div style={{ width: sidebar.size }} className="flex shrink-0 flex-col bg-neutral-50 dark:bg-neutral-900/50">
+        <div style={{ width: sidebar.size }} className="flex shrink-0 flex-col bg-surface">
           <Sidebar />
         </div>
         {sidebar.handle}
-        <div style={{ width: table.size }} className="flex min-w-0 shrink-0 flex-col">
+        <div style={{ width: table.size }} className="flex min-w-0 shrink-0 flex-col bg-panel">
           <FilterBar ref={filterRef} />
           <FlowTable />
         </div>
@@ -184,7 +187,7 @@ export default function App() {
       {/* Always mounted, so screen readers announce each new message. */}
       <div role="status" aria-live="polite" className="pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2">
         {toast && (
-          <div className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">
+          <div className="rounded-lg bg-ink px-3 py-1.5 text-xs text-panel">
             {toast}
           </div>
         )}
@@ -215,9 +218,9 @@ function Banner({
   onClose?: () => void;
 }) {
   const colors = {
-    info: "bg-sky-50 text-sky-900 dark:bg-sky-950 dark:text-sky-200",
-    warn: "bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
-    error: "bg-red-50 text-red-900 dark:bg-red-950 dark:text-red-200",
+    info: "bg-select text-ink",
+    warn: "bg-st-client/12 text-ink",
+    error: "bg-st-server/12 text-ink",
   }[tone];
   return (
     <div role={tone === "error" ? "alert" : "status"} className={`flex items-center gap-2 px-3 py-1.5 text-xs ${colors}`}>

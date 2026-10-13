@@ -50,23 +50,23 @@ export function Inspector() {
   if (selectedId === null) {
     return <EmptyState />;
   }
-  if (error) return <div className="p-4 text-red-500">{error}</div>;
+  if (error) return <div className="p-4 text-st-server">{error}</div>;
   if (!detail || detail.meta.id !== selectedId) return null;
 
   const m = detail.meta;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
+      <div className="border-b border-line px-3 py-2">
         <div className="selectable font-mono text-xs">
           <div className="line-clamp-3 break-all" title={m.url}>
             <span className="font-semibold">{m.method}</span>{" "}
             <span className={statusColor(m.status)}>{m.status ?? (m.state === "failed" ? "ERR" : m.state === "paused" ? "paused" : "…")}</span> {m.url}
           </div>
-          {m.error && <div className="mt-1 text-red-500">{m.error}</div>}
+          {m.error && <div className="mt-1 text-st-server">{m.error}</div>}
           {m.tags.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
               {m.tags.map((t) => (
-                <span key={t} className="rounded bg-violet-100 px-1.5 text-[11px] text-violet-700 dark:bg-violet-950 dark:text-violet-300">
+                <span key={t} className="rounded bg-select px-1.5 text-[11px] text-ink">
                   {t}
                 </span>
               ))}
@@ -165,10 +165,10 @@ function ResponsePane({ detail }: { detail: FlowDetail }) {
       />
       <div data-find-scope tabIndex={-1} className="selectable min-h-0 flex-1 overflow-auto p-2 text-xs outline-none">
         {m.state === "inProgress" && shown !== "timing" && (
-          <p className="mb-2 text-neutral-500">Waiting for the response…</p>
+          <p className="mb-2 text-muted">Waiting for the response…</p>
         )}
         {m.state === "tunnel" && (
-          <p className="mb-2 text-neutral-500">
+          <p className="mb-2 text-muted">
             This connection was passed through without decryption, so its contents can’t be shown. Change this under
             Settings → SSL Proxying.
           </p>
@@ -196,7 +196,7 @@ function pathOf(url: string): string {
 }
 
 function KeyValues({ rows, empty }: { rows: [string, string][]; empty: string }) {
-  if (!rows.length) return <p className="text-neutral-500">{empty}</p>;
+  if (!rows.length) return <p className="text-muted">{empty}</p>;
   return (
     <CopyRows
       rows={rows.map(([k, v]) => ({
@@ -211,7 +211,7 @@ function KeyValues({ rows, empty }: { rows: [string, string][]; empty: string })
 }
 
 function Cookies({ cookies }: { cookies: Cookie[] }) {
-  if (!cookies.length) return <p className="text-neutral-500">No cookies</p>;
+  if (!cookies.length) return <p className="text-muted">No cookies</p>;
   return (
     <CopyRows
       rows={cookies.map((c) => ({
@@ -222,7 +222,7 @@ function Cookies({ cookies }: { cookies: Cookie[] }) {
           <span className="break-all">
             {c.value}
             {c.attrs.length > 0 && (
-              <span className="block text-neutral-500">{c.attrs.map(([k, v]) => (v ? `${k}=${v}` : k)).join("; ")}</span>
+              <span className="block text-muted">{c.attrs.map(([k, v]) => (v ? `${k}=${v}` : k)).join("; ")}</span>
             )}
           </span>
         ),
@@ -249,19 +249,19 @@ function CopyRows({ rows, lineLabel }: { rows: CopyRow[]; lineLabel: string }) {
           {rows.map((r, i) => (
             <tr
               key={i}
-              className="group align-top odd:bg-neutral-50 dark:odd:bg-neutral-900"
+              className="group align-top odd:bg-ink/3"
               onContextMenu={(e) => {
                 e.preventDefault();
                 setMenu({ x: e.clientX, y: e.clientY, row: r });
               }}
             >
-              <td className="w-1/3 py-0.5 pr-3 pl-1 break-all text-neutral-500">{r.name}</td>
+              <td className="w-1/3 py-0.5 pr-3 pl-1 break-all text-muted">{r.name}</td>
               <td className="py-0.5">{r.cell}</td>
               <td className="w-6 py-0.5 text-right">
                 <button
                   aria-label={`Copy ${r.name}`}
                   title="Copy value"
-                  className="invisible rounded p-0.5 text-neutral-400 group-hover:visible hover:text-neutral-800 focus-visible:visible dark:hover:text-neutral-200"
+                  className="invisible rounded p-0.5 text-muted group-hover:visible hover:text-ink focus-visible:visible"
                   onClick={() => copy(r.value, r.name)}
                 >
                   <CopyIcon size={12} />
@@ -301,13 +301,13 @@ const SHORTCUTS: [string, string][] = [
 
 function EmptyState() {
   return (
-    <div className="flex flex-1 items-center justify-center p-6 text-neutral-500">
+    <div className="flex flex-1 items-center justify-center p-6 text-muted">
       <div className="max-w-xs">
-        <p className="mb-3 text-sm text-neutral-700 dark:text-neutral-300">Select a flow to see its request and response.</p>
+        <p className="mb-3 text-sm text-ink">Select a flow to see its request and response.</p>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
           {SHORTCUTS.map(([keys, what]) => (
             <div key={keys} className="contents">
-              <dt className="font-mono text-neutral-700 dark:text-neutral-300">{keys}</dt>
+              <dt className="font-mono text-ink">{keys}</dt>
               <dd>{what}</dd>
             </div>
           ))}
@@ -352,17 +352,17 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
     if (ranges.length) setCurrent((c) => (c + by + ranges.length) % ranges.length);
   };
 
-  if (kind === "empty") return <p className="text-neutral-500">No body</p>;
+  if (kind === "empty") return <p className="text-muted">No body</p>;
 
   return (
     <div>
-      <div className="sticky -top-2 z-[1] -mx-2 mb-1 flex flex-wrap items-center gap-2 bg-white px-2 py-1 text-neutral-500 dark:bg-neutral-950">
+      <div className="sticky -top-2 z-[1] -mx-2 mb-1 flex flex-wrap items-center gap-2 bg-surface px-2 py-1 text-muted">
         <span className="min-w-0 flex-1">
           {formatBytes(body.size)}
           {body.encoding && body.encodedSize != null && ` · ${body.encoding}, ${formatBytes(body.encodedSize)} on the wire`}
           {body.truncated && " (truncated at capture limit)"}
           {kind === "binary" && " · binary"}
-          {body.decodeError && <span className="text-amber-600"> · {body.decodeError}; showing raw bytes</span>}
+          {body.decodeError && <span className="text-st-client"> · {body.decodeError}; showing raw bytes</span>}
         </span>
         {searchable && (
           <div className="flex items-center gap-0.5">
@@ -405,12 +405,12 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
           </div>
         )}
         {modes.length > 1 && (
-          <div className="flex overflow-hidden rounded-md border border-neutral-300 dark:border-neutral-700">
+          <div className="flex rounded-lg bg-ink/6 p-0.5">
             {modes.map((md) => (
               <button
                 key={md}
                 onClick={() => setPreferred(md)}
-                className={`px-2 py-0.5 capitalize ${md === shown ? "bg-neutral-200 text-neutral-900 dark:bg-neutral-700 dark:text-neutral-100" : ""}`}
+                className={`rounded-md px-2 py-0.5 capitalize ${md === shown ? "bg-accent text-on-accent" : "hover:text-ink"}`}
               >
                 {md}
               </button>
@@ -420,13 +420,13 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
       </div>
       {shown === "protobuf" && body.protobuf && (
         <>
-          <p className="mb-1 text-neutral-500">
+          <p className="mb-1 text-muted">
             {body.protobuf.message
               ? `Decoded as ${body.protobuf.message}`
               : "Decoded without a schema (field numbers as keys). Add .proto files under Settings → Protobuf for names."}
           </p>
           {body.protobuf.notes.map((n, i) => (
-            <p key={i} className="mb-1 text-amber-600">
+            <p key={i} className="mb-1 text-st-client">
               {n}
             </p>
           ))}
@@ -439,14 +439,14 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
         <img
           alt="Response body"
           src={imageDataUrl(body, contentType)}
-          className="max-w-full rounded border border-neutral-200 bg-[repeating-conic-gradient(#e5e5e5_0_25%,transparent_0_50%)] bg-[length:16px_16px] dark:border-neutral-800"
+          className="max-w-full rounded border border-line bg-[repeating-conic-gradient(#e5e5e5_0_25%,transparent_0_50%)] bg-[length:16px_16px]"
         />
       )}
       {mode === "hex" && bytes && (
         <>
           <Pre text={hexDump(bytes, hexLimit)} />
           {bytes.length > hexLimit && (
-            <button className="mt-1 text-sky-600 hover:underline" onClick={() => setHexLimit(hexLimit + HEX_PAGE)}>
+            <button className="mt-1 text-accent hover:underline" onClick={() => setHexLimit(hexLimit + HEX_PAGE)}>
               Show more ({formatBytes(bytes.length - hexLimit)} left)
             </button>
           )}
@@ -457,13 +457,13 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
 }
 
 const TOKEN_CLASS: Record<string, string> = {
-  key: "text-purple-700 dark:text-purple-300",
-  string: "text-emerald-700 dark:text-emerald-400",
-  number: "text-sky-700 dark:text-sky-400",
-  literal: "text-orange-600 dark:text-orange-400",
-  tag: "text-sky-700 dark:text-sky-400",
-  attr: "text-purple-700 dark:text-purple-300",
-  comment: "italic text-neutral-400",
+  key: "text-accent",
+  string: "text-st-ok",
+  number: "text-st-redirect",
+  literal: "text-st-client",
+  tag: "text-st-redirect",
+  attr: "text-accent",
+  comment: "italic text-muted",
 };
 
 /** Highlighted text with find matches; the current match is scrolled into view. */
@@ -491,7 +491,7 @@ function Code({ text, lang, ranges, current }: { text: string; lang: Lang; range
           <mark
             key={i}
             data-match={seg.match}
-            className={`rounded-sm text-inherit ${seg.match === current ? "bg-amber-400 dark:bg-amber-500" : "bg-amber-200/70 dark:bg-amber-700/60"} ${cls ?? ""}`}
+            className={`rounded-sm ${seg.match === current ? "bg-accent text-on-accent" : "bg-select"} ${cls ?? ""}`}
           >
             {seg.text}
           </mark>
@@ -526,7 +526,7 @@ function WsMessages({ messages, total }: { messages: WsMessageView[]; total: num
   const [control, setControl] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const shown = useMemo(() => filterWs(messages, dir, query, control), [messages, dir, query, control]);
-  if (!messages.length) return <p className="text-neutral-500">No messages yet</p>;
+  if (!messages.length) return <p className="text-muted">No messages yet</p>;
   const first = messages[0].at;
   const current = selected !== null ? messages[selected] : null;
 
@@ -538,22 +538,22 @@ function WsMessages({ messages, total }: { messages: WsMessageView[]; total: num
             {{ all: "All", clientToServer: "↑ Sent", serverToClient: "↓ Received" }[d]}
           </Chip>
         ))}
-        <label className="ml-1 flex items-center gap-1 text-neutral-500">
+        <label className="ml-1 flex items-center gap-1 text-muted">
           <input type="checkbox" checked={control} onChange={(e) => setControl(e.target.checked)} />
           ping/pong
         </label>
         <input
-          className="ml-auto w-40 rounded-md border border-neutral-300 bg-transparent px-2 py-0.5 dark:border-neutral-700"
+          className="ml-auto w-40 rounded-ds bg-ink/6 px-2 py-0.5 placeholder:text-muted"
           placeholder="Search messages"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <span className="text-neutral-500">
+        <span className="text-muted">
           {shown.length} of {messages.length}
           {total > messages.length && ` (first ${messages.length} of ${total} kept)`}
         </span>
       </div>
-      <div className="min-h-[120px] flex-1 overflow-auto rounded-md border border-neutral-200 font-mono dark:border-neutral-800">
+      <div className="min-h-[120px] flex-1 overflow-auto rounded-ds border border-line bg-panel font-mono">
         {shown.map((i) => {
           const w = messages[i];
           const sel = i === selected;
@@ -561,24 +561,24 @@ function WsMessages({ messages, total }: { messages: WsMessageView[]; total: num
             <div
               key={i}
               onClick={() => setSelected(sel ? null : i)}
-              className={`flex cursor-default gap-2 border-b border-neutral-100 px-1 py-0.5 dark:border-neutral-900 ${
-                sel ? "bg-sky-600 text-white" : ""
+              className={`flex cursor-default gap-2 border-b border-line px-1 py-0.5 ${
+                sel ? "bg-select text-ink" : ""
               }`}
             >
-              <span className={sel ? "" : w.direction === "clientToServer" ? "text-sky-600" : "text-emerald-600"}>
+              <span className={sel ? "" : w.direction === "clientToServer" ? "text-accent" : "text-st-ok"}>
                 {w.direction === "clientToServer" ? "↑" : "↓"}
               </span>
-              <span className={`w-20 shrink-0 text-right ${sel ? "" : "text-neutral-500"}`}>+{formatDuration(w.at - first) || "0 ms"}</span>
-              <span className={`w-12 shrink-0 ${sel ? "" : "text-neutral-500"}`}>{w.kind}</span>
-              <span className={`w-16 shrink-0 text-right ${sel ? "" : "text-neutral-500"}`}>{formatBytes(w.size)}</span>
+              <span className={`w-20 shrink-0 text-right ${sel ? "" : "text-muted"}`}>+{formatDuration(w.at - first) || "0 ms"}</span>
+              <span className={`w-12 shrink-0 ${sel ? "" : "text-muted"}`}>{w.kind}</span>
+              <span className={`w-16 shrink-0 text-right ${sel ? "" : "text-muted"}`}>{formatBytes(w.size)}</span>
               <span className="min-w-0 flex-1 truncate">{w.payload.text ?? "binary"}</span>
             </div>
           );
         })}
       </div>
       {current && (
-        <div className="max-h-[50%] overflow-auto rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
-          <p className="mb-1 text-neutral-500">
+        <div className="max-h-[50%] overflow-auto rounded-ds border border-line bg-panel p-2">
+          <p className="mb-1 text-muted">
             {current.direction === "clientToServer" ? "Sent" : "Received"} at {formatTime(current.at)} · {current.kind}
           </p>
           <BodyViewer body={current.payload} contentType={null} />
@@ -606,18 +606,18 @@ function Timing({ detail }: { detail: FlowDetail }) {
       <dl className="grid grid-cols-[120px_1fr] gap-y-0.5">
         {rows.map(([k, v]) => (
           <div key={k} className="contents">
-            <dt className="text-neutral-500">{k}</dt>
+            <dt className="text-muted">{k}</dt>
             <dd className="font-mono">{v}</dd>
           </div>
         ))}
       </dl>
       {total > 0 && (
-        <div className="mt-3 flex h-2 w-full overflow-hidden rounded bg-neutral-200 dark:bg-neutral-800" title="Waiting · Download">
-          <div className="bg-amber-400" style={{ width: `${(ttfb / total) * 100}%` }} />
-          <div className="bg-sky-500" style={{ width: `${((total - ttfb) / total) * 100}%` }} />
+        <div className="mt-3 flex h-2 w-full overflow-hidden rounded bg-line" title="Waiting · Download">
+          <div className="bg-st-client" style={{ width: `${(ttfb / total) * 100}%` }} />
+          <div className="bg-accent" style={{ width: `${((total - ttfb) / total) * 100}%` }} />
         </div>
       )}
-      <p className="mt-2 text-neutral-500">DNS, connect and TLS timings aren’t captured yet.</p>
+      <p className="mt-2 text-muted">DNS, connect and TLS timings aren’t captured yet.</p>
     </div>
   );
 }

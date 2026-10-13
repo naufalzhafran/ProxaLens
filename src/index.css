@@ -1,5 +1,48 @@
 @import "tailwindcss";
 
+/*
+ * ProxaLens design tokens (light first, dark below). Components use them as
+ * Tailwind utilities: bg-surface, bg-panel, border-line, text-ink, text-muted,
+ * bg-accent / text-on-accent, bg-select, and text-st-ok / -redirect / -client /
+ * -server for HTTP status.
+ */
+@theme {
+  --color-surface: #f4f4f1;
+  --color-panel: #ffffff;
+  --color-line: #d8d8d2;
+  --color-ink: #1b1c1a;
+  --color-muted: #5b5e58;
+  --color-accent: #0b7466;
+  --color-on-accent: #ffffff;
+  --color-select: #d3ebe6;
+  --color-st-ok: #16703d;
+  --color-st-redirect: #1d559f;
+  --color-st-client: #8a5200;
+  --color-st-server: #b3261e;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-ds: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-surface: #1c1d1c;
+    --color-panel: #252726;
+    --color-line: #3a3d3b;
+    --color-ink: #f0f1ee;
+    --color-muted: #a4a8a2;
+    --color-accent: #46c7b2;
+    --color-on-accent: #07201b;
+    --color-select: #1a3d37;
+    --color-st-ok: #62d68f;
+    --color-st-redirect: #8fbaff;
+    --color-st-client: #ffb454;
+    --color-st-server: #ff938a;
+  }
+}
+
 :root {
   color-scheme: light dark;
 }
@@ -11,20 +54,69 @@ body,
 }
 
 body {
-  @apply bg-white text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-100;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  @apply bg-surface font-sans text-ink antialiased;
   font-size: 13px;
+  line-height: 18px;
   user-select: none;
   -webkit-user-select: none;
 }
 
 /* A visible ring for keyboard focus; zero specificity, so utilities win. */
 :where(button, a, input, select, textarea, [tabindex], [role="separator"]):focus-visible {
-  outline: 2px solid var(--color-sky-500);
+  outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
 
 .selectable {
   user-select: text;
   -webkit-user-select: text;
+}
+
+/*
+ * An HTTP status is never told by hue alone: each class carries a shape
+ * before the code — circle 2xx, diamond 3xx, triangle 4xx, square 5xx.
+ */
+.st {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.st::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: currentColor;
+}
+.st-ok {
+  color: var(--color-st-ok);
+}
+.st-ok::before {
+  border-radius: 50%;
+}
+.st-redirect {
+  color: var(--color-st-redirect);
+}
+.st-redirect::before {
+  width: 6px;
+  height: 6px;
+  margin: 0 1px;
+  transform: rotate(45deg);
+}
+.st-client {
+  color: var(--color-st-client);
+}
+.st-client::before {
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+.st-server {
+  color: var(--color-st-server);
+}
+.st-none {
+  color: inherit;
+}
+.st-none::before {
+  display: none;
 }

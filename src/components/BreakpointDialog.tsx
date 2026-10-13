@@ -67,8 +67,8 @@ function Editor({ hit, waiting }: { hit: BreakpointHit; waiting: number }) {
       wide
       footer={
         <>
-          {error && <span className="mr-auto text-red-500">{error}</span>}
-          <span className="mr-auto text-neutral-500">
+          {error && <span className="mr-auto text-st-server">{error}</span>}
+          <span className="mr-auto text-muted">
             Continues unchanged in {formatCountdown(left)}
             {waiting > 0 && ` · ${waiting} more paused`}
           </span>
@@ -102,7 +102,7 @@ function Editor({ hit, waiting }: { hit: BreakpointHit; waiting: number }) {
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate font-mono text-neutral-500">
+            <span className="min-w-0 flex-1 truncate font-mono text-muted">
               {hit.method} {hit.url}
             </span>
             <label className="flex items-center gap-2">
@@ -112,13 +112,13 @@ function Editor({ hit, waiting }: { hit: BreakpointHit; waiting: number }) {
           </div>
         )}
         <label className="flex flex-col gap-1">
-          <span className="text-neutral-500">Headers</span>
+          <span className="text-muted">Headers</span>
           <textarea rows={8} spellCheck={false} className={`${input} resize-y`} value={headers} onChange={(e) => setHeaders(e.target.value)} />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-neutral-500">Body</span>
+          <span className="text-muted">Body</span>
           {binary ? (
-            <p className="rounded-md bg-neutral-100 p-2 dark:bg-neutral-800">
+            <p className="rounded-md bg-surface p-2">
               Binary body ({formatBytes(hit.body.size)}) is passed on unchanged.
             </p>
           ) : (

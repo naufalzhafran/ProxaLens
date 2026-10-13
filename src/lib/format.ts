@@ -18,13 +18,16 @@ export function formatTime(epochMs: number, millis = true): string {
   return millis ? `${clock}.${pad(d.getMilliseconds(), 3)}` : clock;
 }
 
-/** Tailwind text color for an HTTP status code. */
+/**
+ * Classes for an HTTP status code: its color plus a shape (see `.st` in
+ * index.css), so the class never rests on hue alone.
+ */
 export function statusColor(status: number | null): string {
-  if (status === null) return "text-neutral-400";
-  if (status >= 500) return "text-red-500";
-  if (status >= 400) return "text-orange-500";
-  if (status >= 300) return "text-sky-500";
-  return "text-emerald-600 dark:text-emerald-400";
+  if (status === null) return "st st-none";
+  if (status >= 500) return "st st-server";
+  if (status >= 400) return "st st-client";
+  if (status >= 300) return "st st-redirect";
+  return "st st-ok";
 }
 
 /** "application/json; charset=utf-8" → "json", "image/svg+xml" → "svg". */

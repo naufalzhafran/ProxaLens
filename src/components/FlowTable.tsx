@@ -31,12 +31,12 @@ interface Column {
   cell: (f: FlowMeta, selected: boolean) => React.ReactNode;
 }
 
-const muted = (selected: boolean) => (selected ? "" : "text-neutral-500");
+const muted = (selected: boolean) => (selected ? "" : "text-muted");
 
 export const COLUMNS: Column[] = [
   {
     key: "id", label: "#", track: "44px", min: 36, value: (f) => f.id,
-    cell: (f, sel) => <span className={sel ? "" : "text-neutral-400"}>{f.id}</span>,
+    cell: (f, sel) => <span className={sel ? "" : "text-muted"}>{f.id}</span>,
   },
   {
     key: "app", label: "App", track: "minmax(60px,0.7fr)", min: 40, value: (f) => f.process ?? "",
@@ -51,8 +51,8 @@ export const COLUMNS: Column[] = [
     cell: (f) => <span className="truncate font-semibold">{f.method}</span>,
   },
   {
-    key: "status", label: "Status", track: "48px", min: 36, value: (f) => f.status ?? -1,
-    cell: (f, sel) => <span className={sel ? "" : statusColor(f.status)}>{statusLabel(f)}</span>,
+    key: "status", label: "Status", track: "60px", min: 48, value: (f) => f.status ?? -1,
+    cell: (f) => <span className={statusColor(f.status)}>{statusLabel(f)}</span>,
   },
   {
     key: "host", label: "Host", track: "minmax(100px,1.2fr)", min: 60, value: (f) => f.host,
@@ -60,10 +60,10 @@ export const COLUMNS: Column[] = [
   },
   {
     key: "path", label: "Path", track: "minmax(120px,2fr)", min: 60, value: (f) => f.path,
-    cell: (f, sel) => (
+    cell: (f) => (
       <span className="truncate" title={f.tags.length ? `${f.url}\n${f.tags.join(", ")}` : f.url}>
         {f.tags.length > 0 && (
-          <span className={`mr-1 rounded px-1 text-[10px] ${sel ? "bg-white/25" : "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"}`}>
+          <span className="mr-1 rounded bg-ink/8 px-1 text-[10px] text-ink">
             {f.tags.map((t) => t.split(" ")[0]).join(" · ")}
           </span>
         )}
@@ -247,7 +247,7 @@ export function FlowTable() {
             style={{ ...grid, height: HEADER_HEIGHT }}
             onContextMenu={onHeaderMenu}
             title="Click to sort; drag an edge to resize; right-click to choose columns"
-            className="sticky top-0 z-10 grid items-center border-b border-neutral-200 bg-white text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:border-neutral-800 dark:bg-neutral-950"
+            className="sticky top-0 z-10 grid items-center border-b border-line bg-panel text-[11px] font-semibold uppercase tracking-[0.04em] text-muted"
           >
             {columns.map((c) => (
               <HeaderCell key={c.key} column={c} sort={sort?.key === c.key ? sort : null} />
@@ -286,14 +286,14 @@ export function FlowTable() {
           )}
         </div>
         {rows.length === 0 && (
-          <p className="p-6 text-center text-neutral-500">
+          <p className="p-6 text-center text-muted">
             {order.length
               ? "No flows match the current filter."
               : "No traffic yet. Point an app at the proxy, or switch the proxy on."}
           </p>
         )}
       </div>
-      <div className="border-t border-neutral-200 px-3 py-1 text-[11px] text-neutral-500 dark:border-neutral-800">
+      <div className="border-t border-line px-3 py-1 text-[11px] text-muted">
         {rows.length === order.length ? `${order.length} flows` : `${rows.length} of ${order.length} flows`}
         {selection.length > 1 && ` · ${selection.length} selected`}
       </div>
@@ -332,7 +332,7 @@ function HeaderCell({ column, sort }: { column: Column; sort: Sort | null }) {
   return (
     <div className="relative flex h-full min-w-0 items-center">
       <button
-        className={`flex h-full min-w-0 flex-1 items-center gap-0.5 uppercase ${column.right ? "justify-end" : ""} ${sort ? "text-neutral-800 dark:text-neutral-200" : ""}`}
+        className={`flex h-full min-w-0 flex-1 items-center gap-0.5 uppercase ${column.right ? "justify-end" : ""} ${sort ? "text-ink" : ""}`}
         aria-sort={sort ? (sort.desc ? "descending" : "ascending") : undefined}
         onClick={() => !resizing.current && useColumns.getState().cycleSort(column.key)}
       >
@@ -345,7 +345,7 @@ function HeaderCell({ column, sort }: { column: Column; sort: Sort | null }) {
         aria-label={`Resize ${column.label}`}
         onMouseDown={startResize}
         onDoubleClick={() => useColumns.getState().setWidth(column.key, null)}
-        className="absolute -right-[5px] top-1 bottom-1 z-10 w-[5px] cursor-col-resize border-r border-neutral-200 hover:border-sky-500 dark:border-neutral-800"
+        className="absolute -right-[5px] top-1 bottom-1 z-10 w-[5px] cursor-col-resize border-r border-line hover:border-accent"
       />
     </div>
   );
@@ -385,13 +385,13 @@ function statusLabel(f: FlowMeta): string {
 }
 
 function rowClass(f: FlowMeta, selected: boolean, index: number): string {
-  if (selected) return "bg-sky-600 text-white";
+  if (selected) return "bg-select text-ink";
   if (f.state === "failed" || f.state === "blocked")
-    return "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300";
-  if (f.state === "tunnel") return "text-neutral-400 italic";
-  if (f.state === "paused") return "bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
-  if (f.state === "inProgress") return "text-neutral-500";
-  return index % 2 ? "bg-neutral-50 dark:bg-neutral-900" : "";
+    return "bg-st-server/8 text-st-server";
+  if (f.state === "tunnel") return "text-muted italic";
+  if (f.state === "paused") return "bg-st-client/10 text-st-client";
+  if (f.state === "inProgress") return "text-muted";
+  return index % 2 ? "bg-surface" : "";
 }
 
 /** Context-menu entries for one flow. Bodies are fetched on demand. */

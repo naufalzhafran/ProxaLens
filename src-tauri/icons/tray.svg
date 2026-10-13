@@ -1,0 +1,10 @@
+<!-- Menu-bar template glyph: single color, no tile; macOS tints it. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="14 14 68 68" width="44" height="44">
+  <defs><clipPath id="lens"><circle cx="48" cy="48" r="30"/></clipPath></defs>
+  <g clip-path="url(#lens)" fill="#000000">
+    <rect x="22" y="32" width="24" height="8" rx="4"/>
+    <rect x="34" y="44" width="34" height="8" rx="4"/>
+    <rect x="46" y="56" width="26" height="8" rx="4"/>
+  </g>
+  <circle cx="48" cy="48" r="30" fill="none" stroke="#000000" stroke-width="5"/>
+</svg>

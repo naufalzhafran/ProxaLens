@@ -45,7 +45,7 @@ export function DevicesDialog() {
   }
 
   return (
-    <Modal title="Devices" onClose={close} footer={error && <span className="mr-auto text-red-500">{error}</span>}>
+    <Modal title="Devices" onClose={close} footer={error && <span className="mr-auto text-st-server">{error}</span>}>
       <div className="flex flex-col gap-4">
         <section>
           <h3 className="mb-1 font-medium">iPhone, iPad and Android on the same network</h3>
@@ -53,20 +53,20 @@ export function DevicesDialog() {
             <input type="checkbox" disabled={busy || !info} checked={info?.allowLan ?? false} onChange={(e) => setAllowLan(e.target.checked)} />
             Allow devices on the network to use the proxy
           </label>
-          <p className="mt-1 text-amber-700 dark:text-amber-300">
+          <p className="mt-1 text-st-client">
             Anyone who can reach this Mac can then use the proxy. Switch it off when you’re done, especially on public networks.
           </p>
           {info?.allowLan && (
             <div className="mt-3 flex gap-4">
-              {qr && <img src={qr} alt="QR code for the setup page" className="h-[180px] w-[180px] rounded bg-white" />}
+              {qr && <img src={qr} alt="QR code for the setup page" className="h-[180px] w-[180px] rounded bg-panel" />}
               <div className="flex min-w-0 flex-col gap-2">
                 <p>On the device, open the setup page (scan the code) to install the certificate, then set its Wi-Fi proxy to:</p>
-                {info.setupUrls.length === 0 && <p className="text-neutral-500">No network connection found.</p>}
+                {info.setupUrls.length === 0 && <p className="text-muted">No network connection found.</p>}
                 {info.setupUrls.map(([iface, u]) => {
                   const hostPort = u.replace(/^http:\/\//, "").replace(/\/$/, "");
                   return (
                     <div key={iface} className="flex items-center gap-2 font-mono">
-                      <span className="text-neutral-500">{iface}</span>
+                      <span className="text-muted">{iface}</span>
                       <span className="selectable">{hostPort}</span>
                       <button className={button} onClick={() => copy(u, "setup URL")}>
                         Copy URL
@@ -74,7 +74,7 @@ export function DevicesDialog() {
                     </div>
                   );
                 })}
-                <p className="text-neutral-500">
+                <p className="text-muted">
                   iOS: after installing the profile, enable it under Settings → General → About → Certificate Trust Settings.
                 </p>
               </div>
@@ -83,7 +83,7 @@ export function DevicesDialog() {
         </section>
         <section>
           <h3 className="mb-1 font-medium">iOS Simulator</h3>
-          <p className="mb-2 text-neutral-600 dark:text-neutral-400">
+          <p className="mb-2 text-muted">
             Simulators use this Mac’s proxy settings, so switch the proxy on and trust the certificate in each booted Simulator.
           </p>
           <button className={primaryButton} onClick={installSimulator}>

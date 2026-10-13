@@ -64,7 +64,7 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
       onClose={cancel}
       footer={
         <>
-          {error && <span className="mr-auto text-red-500">{error}</span>}
+          {error && <span className="mr-auto text-st-server">{error}</span>}
           <button className={button} onClick={cancel}>
             Cancel
           </button>
@@ -99,7 +99,7 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
                   value={settings.port || ""}
                   onChange={(e) => setSettings({ ...settings, port: Math.min(65535, Number(e.target.value.replace(/\D/g, ""))) })}
                 />
-                <span className="text-neutral-500">The proxy restarts on a new port, and the system proxy follows it.</span>
+                <span className="text-muted">The proxy restarts on a new port, and the system proxy follows it.</span>
               </label>
               <Help>How “Proxy On” points this Mac at the proxy.</Help>
               {(
@@ -117,7 +117,7 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
                   />
                   <span>
                     <span className="font-medium">{title}</span>
-                    <span className="block text-neutral-500">{help}</span>
+                    <span className="block text-muted">{help}</span>
                   </span>
                 </label>
               ))}
@@ -166,11 +166,11 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
 }
 
 function Help({ children }: { children: React.ReactNode }) {
-  return <p className="text-neutral-600 dark:text-neutral-400">{children}</p>;
+  return <p className="text-muted">{children}</p>;
 }
 
 function Code({ children }: { children: React.ReactNode }) {
-  return <code className="rounded bg-neutral-100 px-1 font-mono dark:bg-neutral-800">{children}</code>;
+  return <code className="rounded bg-surface px-1 font-mono">{children}</code>;
 }
 
 function HostsField({ label, hosts, onChange }: { label: string; hosts: string[]; onChange: (h: string[]) => void }) {
@@ -182,7 +182,7 @@ function HostsField({ label, hosts, onChange }: { label: string; hosts: string[]
   }, [hosts]);
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-neutral-500">{label}</span>
+      <span className="text-muted">{label}</span>
       <textarea
         rows={6}
         spellCheck={false}
@@ -224,7 +224,7 @@ function ThrottleEditor({ settings, setSettings }: { settings: Settings; setSett
       </label>
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
-          <span className="text-neutral-500">Preset</span>
+          <span className="text-muted">Preset</span>
           <select
             className={input}
             value={t.preset in THROTTLE_PRESETS ? t.preset : "custom"}
@@ -242,7 +242,7 @@ function ThrottleEditor({ settings, setSettings }: { settings: Settings; setSett
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-neutral-500">Bandwidth (kbit/s, 0 = unlimited)</span>
+          <span className="text-muted">Bandwidth (kbit/s, 0 = unlimited)</span>
           <input
             type="number"
             min={0}
@@ -252,7 +252,7 @@ function ThrottleEditor({ settings, setSettings }: { settings: Settings; setSett
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-neutral-500">Latency (ms)</span>
+          <span className="text-muted">Latency (ms)</span>
           <input
             type="number"
             min={0}
@@ -277,10 +277,10 @@ function ProtobufEditor({ settings, setSettings }: { settings: Settings; setSett
         them) to decode gRPC calls by name. The first entry whose host pattern matches is used.
       </Help>
       {list.map((entry, i) => (
-        <div key={i} className="flex flex-col gap-2 rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+        <div key={i} className="flex flex-col gap-2 rounded-md border border-line p-2">
           <div className="flex items-end gap-2">
             <label className="flex flex-1 flex-col gap-1">
-              <span className="text-neutral-500">Hosts</span>
+              <span className="text-muted">Hosts</span>
               <input
                 className={input}
                 spellCheck={false}
@@ -324,7 +324,7 @@ function McpSection({ settings, setSettings }: { settings: Settings; setSettings
   }, []);
   const mcp = settings.mcp;
   return (
-    <div className="mt-2 flex flex-col gap-2 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+    <div className="mt-2 flex flex-col gap-2 border-t border-line pt-3">
       <h3 className="font-medium">MCP server for AI agents</h3>
       <Help>
         Lets agents such as Claude Code list, search and replay captured requests, add mocks and manage scripts. It listens
@@ -347,7 +347,7 @@ function McpSection({ settings, setSettings }: { settings: Settings; setSettings
       </div>
       {info?.claudeCommand ? (
         <div className="flex items-center gap-2">
-          <code className="selectable min-w-0 flex-1 truncate rounded bg-neutral-100 px-2 py-1 font-mono text-[11px] dark:bg-neutral-800" title={info.claudeCommand}>
+          <code className="selectable min-w-0 flex-1 truncate rounded bg-surface px-2 py-1 font-mono text-[11px]" title={info.claudeCommand}>
             {info.claudeCommand}
           </code>
           <button className={button} onClick={() => copy(info.claudeCommand!, "command")}>
@@ -355,7 +355,7 @@ function McpSection({ settings, setSettings }: { settings: Settings; setSettings
           </button>
         </div>
       ) : (
-        <p className="text-neutral-500">Save with “Enabled” on to start it and get the connection command.</p>
+        <p className="text-muted">Save with “Enabled” on to start it and get the connection command.</p>
       )}
     </div>
   );

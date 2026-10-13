@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export const button =
-  "rounded-md border border-neutral-300 px-2.5 py-1 text-xs font-medium hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800";
+  "rounded-lg bg-ink/6 px-2.5 py-1 text-xs font-medium hover:bg-ink/10 disabled:opacity-50";
 
 /** A square toolbar button showing only an icon; `label` is its name and tooltip. */
 export function IconButton({
@@ -21,7 +21,7 @@ export function IconButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`flex h-[26px] w-[26px] items-center justify-center rounded-md border border-neutral-300 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800 ${className}`}
+      className={`flex h-[26px] w-[26px] items-center justify-center rounded-lg text-muted hover:bg-ink/8 hover:text-ink ${className}`}
     >
       {children}
     </button>
@@ -29,7 +29,7 @@ export function IconButton({
 }
 
 export const primaryButton =
-  "rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50";
+  "rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50";
 
 export function Chip({
   active,
@@ -49,8 +49,8 @@ export function Chip({
       aria-pressed={active}
       className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
         active
-          ? "bg-sky-600 text-white"
-          : "text-neutral-600 hover:bg-neutral-200 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          ? "bg-accent text-on-accent"
+          : "text-muted hover:bg-ink/6 hover:text-ink"
       }`}
     >
       {children}
@@ -70,10 +70,8 @@ export function Tabs<T extends string>({
   right?: React.ReactNode;
 }) {
   return (
-    // The divider is an inset shadow rather than a border so the strip can
-    // scroll sideways in a narrow pane without clipping the active underline.
     <div
-      className="flex items-center gap-0.5 overflow-x-auto px-2 shadow-[inset_0_-1px_0_var(--color-neutral-200)] [scrollbar-width:none] dark:shadow-[inset_0_-1px_0_var(--color-neutral-800)]"
+      className="flex items-center gap-1 overflow-x-auto border-b border-line px-2 py-1.5 [scrollbar-width:none]"
       role="tablist"
       onKeyDown={(e) => {
         const by = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
@@ -93,14 +91,12 @@ export function Tabs<T extends string>({
           role="tab"
           aria-selected={t.id === value}
           onClick={() => onChange(t.id)}
-          className={`shrink-0 whitespace-nowrap border-b-2 px-2 py-1 text-xs ${
-            t.id === value
-              ? "border-sky-600 font-medium text-neutral-900 dark:text-neutral-100"
-              : "border-transparent text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+          className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-0.5 text-xs font-medium ${
+            t.id === value ? "bg-panel text-ink ring-1 ring-line" : "text-muted hover:text-ink"
           }`}
         >
           {t.label}
-          {t.badge ? <span className="ml-1 text-[10px] text-neutral-400">{t.badge}</span> : null}
+          {t.badge ? <span className="ml-1 text-[10px] font-normal text-muted">{t.badge}</span> : null}
         </button>
       ))}
       {right && <div className="ml-auto flex items-center gap-1">{right}</div>}
@@ -185,7 +181,7 @@ export function Popover({
       role="dialog"
       aria-label={label}
       style={style}
-      className="fixed z-50 w-80 rounded-lg border border-neutral-200 bg-white text-xs shadow-xl dark:border-neutral-700 dark:bg-neutral-900"
+      className="fixed z-50 w-80 rounded-ds border border-line bg-panel text-xs"
     >
       {children}
     </div>
@@ -266,11 +262,11 @@ export function ContextMenu({
       role="menu"
       onKeyDown={onKeyDown}
       style={style}
-      className="fixed z-50 min-w-48 rounded-md border border-neutral-200 bg-white py-1 text-xs shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
+      className="fixed z-50 min-w-48 rounded-lg border border-line bg-panel p-1 text-xs"
     >
       {items.map((item, i) =>
         item === "separator" ? (
-          <div key={i} className="my-1 h-px bg-neutral-200 dark:bg-neutral-700" />
+          <div key={i} className="my-1 h-px bg-line" />
         ) : (
           <button
             key={i}
@@ -281,7 +277,7 @@ export function ContextMenu({
               if (!item.keepOpen) onClose();
               item.onSelect();
             }}
-            className="flex w-full items-center px-3 py-1 text-left outline-none hover:bg-sky-600 hover:text-white focus:bg-sky-600 focus:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-inherit"
+            className="flex w-full items-center rounded-md px-2 py-1 text-left outline-none hover:bg-accent hover:text-on-accent focus:bg-accent focus:text-on-accent disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-inherit"
           >
             {checks && <span className="w-4 shrink-0">{item.checked ? "✓" : ""}</span>}
             {item.label}
@@ -344,7 +340,7 @@ export function useResizable(
       role="separator"
       aria-orientation={axis === "x" ? "vertical" : "horizontal"}
       onMouseDown={onMouseDown}
-      className={`shrink-0 bg-neutral-200 hover:bg-sky-500 dark:bg-neutral-800 ${
+      className={`shrink-0 bg-line hover:bg-accent ${
         axis === "x" ? "w-px cursor-col-resize px-px" : "h-px cursor-row-resize py-px"
       }`}
     />
@@ -414,21 +410,21 @@ export function Modal({
         aria-label={title}
         tabIndex={-1}
         onKeyDown={trap}
-        className={`flex max-h-full w-full flex-col rounded-xl border outline-none border-neutral-200 bg-white text-xs shadow-2xl dark:border-neutral-700 dark:bg-neutral-900 ${
+        className={`flex max-h-full w-full flex-col rounded-xl border border-line bg-panel text-xs outline-none ${
           wide ? "max-w-5xl" : narrow ? "max-w-lg" : "max-w-2xl"
         }`}
       >
-        <div className="flex items-center border-b border-neutral-200 px-4 py-2.5 dark:border-neutral-800">
-          <h2 className="flex-1 text-sm font-semibold">{title}</h2>
+        <div className="flex items-center border-b border-line px-4 py-2.5">
+          <h2 className="flex-1 text-[15px] leading-5 font-semibold">{title}</h2>
           {onClose && (
-            <button className="opacity-60 hover:opacity-100" onClick={onClose} aria-label="Close">
+            <button className="text-muted hover:text-ink" onClick={onClose} aria-label="Close">
               ✕
             </button>
           )}
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-4">{children}</div>
         {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-neutral-200 px-4 py-2.5 dark:border-neutral-800">
+          <div className="flex items-center justify-end gap-2 border-t border-line px-4 py-2.5">
             {footer}
           </div>
         )}
@@ -438,4 +434,4 @@ export function Modal({
 }
 
 export const input =
-  "rounded-md border border-neutral-300 bg-transparent px-2 py-1 font-mono text-xs dark:border-neutral-700";
+  "rounded-ds bg-ink/6 px-2 py-1 font-mono text-xs placeholder:text-muted";

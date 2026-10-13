@@ -1,0 +1,14 @@
+<!-- ProxaLens mark: a lens holding three staggered timing bars. Source for `tauri icon`. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <g transform="translate(100 100) scale(8.5833)">
+    <rect width="96" height="96" rx="22" fill="#0b7466"/>
+    <defs><clipPath id="lens"><circle cx="48" cy="48" r="30"/></clipPath></defs>
+    <circle cx="48" cy="48" r="30" fill="#ffffff" opacity="0.18"/>
+    <g clip-path="url(#lens)" fill="#ffffff">
+      <rect x="22" y="32" width="24" height="8" rx="4"/>
+      <rect x="34" y="44" width="34" height="8" rx="4"/>
+      <rect x="46" y="56" width="26" height="8" rx="4"/>
+    </g>
+    <circle cx="48" cy="48" r="30" fill="none" stroke="#ffffff" stroke-width="5"/>
+  </g>
+</svg>
