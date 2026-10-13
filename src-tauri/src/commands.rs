@@ -14,6 +14,7 @@ use tokio::sync::broadcast::error::TryRecvError;
 use crate::engine::breakpoint::{Edits, Phase, Resume};
 use crate::engine::repeat::OutgoingRequest;
 use crate::engine::rules::Rules;
+use crate::engine::script::{LogEntry, ScriptInfo};
 use crate::engine::settings::Settings;
 use crate::engine::store::{FlowEvent, FlowId, FlowMeta, WsDirection};
 use crate::engine::sysproxy::RestoreReport;
@@ -515,6 +516,111 @@ pub fn bridge_breakpoints(app: &AppHandle) {
             }
             last = n;
             let _ = app.emit("breakpoints-changed", n);
+        }
+    });
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptList {
+    dir: String,
+    scripts: Vec<ScriptInfo>,
+}
+
+#[tauri::command]
+pub fn list_scripts(state: State<'_, AppState>) -> ScriptList {
+    let scripts = &state.engine.scripts;
+    ScriptList {
+        dir: scripts.dir().to_string_lossy().into_owned(),
+        scripts: scripts.list(),
+    }
+}
+
+/// Picks up scripts edited outside the app.
+#[tauri::command]
+pub fn reload_scripts(state: State<'_, AppState>) {
+    state.engine.scripts.reload();
+}
+
+#[tauri::command]
+pub fn read_script(state: State<'_, AppState>, file_name: String) -> CmdResult<String> {
+    state
+        .engine
+        .scripts
+        .read(&file_name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_script(state: State<'_, AppState>, file_name: String, source: String) -> CmdResult<()> {
+    state
+        .engine
+        .scripts
+        .save(&file_name, &source)
+        .map_err(|e| e.to_string())
+}
+
+/// Creates a script from a template; returns its file name.
+#[tauri::command]
+pub fn create_script(
+    state: State<'_, AppState>,
+    name: String,
+    matches: String,
+    body: String,
+) -> CmdResult<String> {
+    let source = crate::engine::script::template(&name, &matches, &body);
+    state
+        .engine
+        .scripts
+        .create(&source)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_script(state: State<'_, AppState>, file_name: String) -> CmdResult<()> {
+    state
+        .engine
+        .scripts
+        .delete(&file_name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_script_enabled(
+    state: State<'_, AppState>,
+    file_name: String,
+    enabled: bool,
+) -> CmdResult<()> {
+    state
+        .engine
+        .scripts
+        .set_enabled(&file_name, enabled)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn script_console(state: State<'_, AppState>) -> Vec<LogEntry> {
+    state.engine.scripts.console()
+}
+
+#[tauri::command]
+pub fn clear_script_console(state: State<'_, AppState>) {
+    state.engine.scripts.clear_console();
+}
+
+/// Tells the UI when scripts or their console change (debounced).
+pub fn bridge_scripts(app: &AppHandle) {
+    let mut rx = app.state::<AppState>().engine.scripts.subscribe();
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(()) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(_) => return,
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            while rx.try_recv().is_ok() {}
+            let _ = app.emit("scripts-changed", ());
         }
     });
 }

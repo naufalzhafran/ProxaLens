@@ -30,6 +30,8 @@ interface UiState {
   settingsTab: SettingsTab | null;
   compareMark: number | null;
   rules: RulesView | null;
+  scriptsOpen: boolean;
+  openScripts: (open: boolean) => void;
   openRules: (view: RulesView | null) => void;
   openComposer: (d: Draft) => void;
   openDiff: (a: number, b: number) => void;
@@ -44,12 +46,14 @@ export const useUi = create<UiState>((set) => ({
   settingsTab: null,
   compareMark: null,
   rules: null,
+  scriptsOpen: false,
+  openScripts: (scriptsOpen) => set({ scriptsOpen }),
   openRules: (rules) => set({ rules }),
   openComposer: (composer) => set({ composer }),
   openDiff: (a, b) => set({ diff: [a, b], compareMark: null }),
   openSettings: (settingsTab) => set({ settingsTab }),
   markForCompare: (compareMark) => set({ compareMark }),
-  close: () => set({ composer: null, diff: null, settingsTab: null, rules: null }),
+  close: () => set({ composer: null, diff: null, settingsTab: null, rules: null, scriptsOpen: false }),
 }));
 
 /** The engine's settings, cached for the toolbar. */

@@ -57,6 +57,7 @@ pub fn run() {
             }
             app.manage(state);
             commands::bridge_breakpoints(app.handle());
+            commands::bridge_scripts(app.handle());
             if let Err(e) = tray::install(app.handle()) {
                 tracing::warn!("could not create the menu bar icon: {e}");
             }
@@ -94,6 +95,15 @@ pub fn run() {
             commands::list_breakpoints,
             commands::resume_breakpoint,
             commands::resume_all_breakpoints,
+            commands::list_scripts,
+            commands::reload_scripts,
+            commands::read_script,
+            commands::save_script,
+            commands::create_script,
+            commands::delete_script,
+            commands::set_script_enabled,
+            commands::script_console,
+            commands::clear_script_console,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

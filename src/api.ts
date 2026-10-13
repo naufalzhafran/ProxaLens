@@ -168,6 +168,25 @@ export interface BreakpointEdits {
   body: number[];
 }
 
+export interface ScriptInfo {
+  fileName: string;
+  path: string;
+  id: string;
+  name: string;
+  matches: string[];
+  enabled: boolean;
+  error: string | null;
+  categories: string[];
+}
+
+export interface LogEntry {
+  id: number;
+  at: number;
+  script: string;
+  level: "log" | "info" | "warn" | "error";
+  message: string;
+}
+
 export type FlowBatch =
   | { type: "upserts"; flows: FlowMeta[] }
   | { type: "cleared" }
@@ -203,6 +222,18 @@ export const api = {
     invoke<boolean>("resume_breakpoint", { flowId, phase, abort, edits }),
   resumeAllBreakpoints: () => invoke<void>("resume_all_breakpoints"),
   onBreakpointsChanged: (cb: () => void) => listen("breakpoints-changed", cb),
+  listScripts: () => invoke<{ dir: string; scripts: ScriptInfo[] }>("list_scripts"),
+  reloadScripts: () => invoke<void>("reload_scripts"),
+  readScript: (fileName: string) => invoke<string>("read_script", { fileName }),
+  saveScript: (fileName: string, source: string) => invoke<void>("save_script", { fileName, source }),
+  createScript: (name: string, matches: string, body: string) =>
+    invoke<string>("create_script", { name, matches, body }),
+  deleteScript: (fileName: string) => invoke<void>("delete_script", { fileName }),
+  setScriptEnabled: (fileName: string, enabled: boolean) =>
+    invoke<void>("set_script_enabled", { fileName, enabled }),
+  scriptConsole: () => invoke<LogEntry[]>("script_console"),
+  clearScriptConsole: () => invoke<void>("clear_script_console"),
+  onScriptsChanged: (cb: () => void) => listen("scripts-changed", cb),
   /** Fires when the tray (or another command) changes proxy state. */
   onStatusChanged: (cb: () => void) => listen("status-changed", cb),
 };

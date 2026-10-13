@@ -35,6 +35,7 @@ use super::rules::{
     self, CompiledRules, MapLocal, RequestParts, ResponseParts, normalize_url, rewrite_request,
     rewrite_response,
 };
+use super::script::{PauseWith, RequestOutcome, Responded, Scripts};
 use super::settings::Settings;
 use super::store::{
     FlowData, FlowId, FlowMeta, FlowState, Store, WS_MESSAGES_CAP, WS_PAYLOAD_CAP, WsDirection,
@@ -59,6 +60,7 @@ pub struct Recorder {
     pub settings: Arc<RwLock<Settings>>,
     pub rules: Arc<RwLock<Arc<CompiledRules>>>,
     pub breakpoints: Arc<Breakpoints>,
+    pub scripts: Arc<Scripts>,
     /// Upgraded WebSocket connections, keyed by the client's socket address.
     websockets: Mutex<HashMap<SocketAddr, FlowId>>,
 }
@@ -70,6 +72,7 @@ impl Recorder {
         settings: Arc<RwLock<Settings>>,
         rules: Arc<RwLock<Arc<CompiledRules>>>,
         breakpoints: Arc<Breakpoints>,
+        scripts: Arc<Scripts>,
     ) -> Arc<Self> {
         Arc::new(Self {
             store,
@@ -77,6 +80,7 @@ impl Recorder {
             settings,
             rules,
             breakpoints,
+            scripts,
             websockets: Mutex::new(HashMap::new()),
         })
     }
@@ -95,6 +99,8 @@ pub struct FlowHandler {
     /// Rules as they were when the request arrived.
     rules: Option<Arc<CompiledRules>>,
     break_on_response: bool,
+    /// Set when a script answered the request itself.
+    skip_response_scripts: bool,
 }
 
 impl FlowHandler {
@@ -107,7 +113,17 @@ impl FlowHandler {
             url: String::new(),
             rules: None,
             break_on_response: false,
+            skip_response_scripts: false,
         }
+    }
+
+    fn pause_with(&self) -> Option<PauseWith> {
+        let (flow_id, _) = self.flow?;
+        Some(PauseWith {
+            breakpoints: self.rec.breakpoints.clone(),
+            flow_id,
+            handle: tokio::runtime::Handle::current(),
+        })
     }
 
     /// Notes on the flow that a rule changed it ("Map Local", …).
@@ -298,6 +314,14 @@ fn text_response(status: StatusCode, msg: &str) -> Response<Body> {
 
 const ABORTED: &str = "Aborted at a breakpoint";
 
+fn build_response(status: u16, headers: &[(String, String)], body: Vec<u8>) -> Response<Body> {
+    let mut res = Response::new(Body::empty());
+    *res.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
+    *res.headers_mut() = build_headers(headers, Some(body.len()));
+    *res.body_mut() = Body::from(body);
+    res
+}
+
 async fn map_local_response(rule: &MapLocal) -> Result<Response<Body>, String> {
     let body = if rule.file.trim().is_empty() {
         rule.body.clone().into_bytes()
@@ -314,11 +338,7 @@ async fn map_local_response(rule: &MapLocal) -> Result<Response<Body>, String> {
     {
         headers.push(("Content-Type".into(), ct.into()));
     }
-    let mut res = Response::new(Body::empty());
-    *res.status_mut() = StatusCode::from_u16(rule.status).unwrap_or(StatusCode::OK);
-    *res.headers_mut() = build_headers(&headers, Some(body.len()));
-    *res.body_mut() = Body::from(body);
-    Ok(res)
+    Ok(build_response(rule.status, &headers, body))
 }
 
 fn split_url(url: &str) -> (String, String, String) {
@@ -443,8 +463,9 @@ impl HttpHandler for FlowHandler {
         let (break_request, break_response) = rules.breakpoint(&self.method, &self.url);
         self.break_on_response = break_response;
         let rewrites = rules.rewrites(&self.method, &self.url, true);
+        let scripts = self.rec.scripts.matching(&self.url, Phase::Request);
 
-        if break_request || !rewrites.is_empty() {
+        if break_request || !rewrites.is_empty() || !scripts.is_empty() {
             let bytes = match collect(body).await {
                 Ok(b) => b,
                 Err(e) => {
@@ -458,7 +479,9 @@ impl HttpHandler for FlowHandler {
                 headers: headers_vec(&parts.headers),
                 body: bytes,
             };
-            let edits_body = break_request || rewrites.iter().any(|(r, _)| r.target.is_body());
+            let edits_body = break_request
+                || !scripts.is_empty()
+                || rewrites.iter().any(|(r, _)| r.target.is_body());
             if edits_body {
                 decode_for_edit(&mut req.headers, &mut req.body);
             }
@@ -467,6 +490,44 @@ impl HttpHandler for FlowHandler {
                 rewrite_request(&mut req, &rewrites);
                 if req != before {
                     self.tag("Rewrite");
+                }
+            }
+            if !scripts.is_empty() {
+                let engine = self.rec.scripts.clone();
+                let pause = self.pause_with();
+                let before = req.clone();
+                let mut changed = req.clone();
+                let ran = tokio::task::spawn_blocking(move || {
+                    let outcome = engine.run_request(&scripts, &mut changed, pause.as_ref());
+                    (changed, outcome)
+                })
+                .await;
+                if let Ok((changed, outcome)) = ran {
+                    if changed != before {
+                        self.tag("Script");
+                    }
+                    req = changed;
+                    match outcome {
+                        RequestOutcome::Continue => {}
+                        RequestOutcome::Block => {
+                            self.tag("Script");
+                            self.rec.store.update(id, |m, _| {
+                                m.state = FlowState::Blocked;
+                                m.status = Some(403);
+                                m.duration_ms = Some(elapsed_ms(started));
+                                m.error = Some("Blocked by a script".into());
+                            });
+                            return text_response(StatusCode::FORBIDDEN, "Blocked by a script.")
+                                .into();
+                        }
+                        RequestOutcome::Respond(Responded(r)) => {
+                            self.tag("Script");
+                            self.rules = Some(rules.clone());
+                            self.skip_response_scripts = true;
+                            let res = build_response(r.status, &r.headers, r.body);
+                            return self.finish_response(res).await.into();
+                        }
+                    }
                 }
             }
             if break_request {
@@ -595,7 +656,12 @@ impl FlowHandler {
             && self.flow.is_some()
         {
             let rewrites = rules.rewrites(&self.method, &self.url, false);
-            if !rewrites.is_empty() || self.break_on_response {
+            let scripts = if self.skip_response_scripts {
+                Vec::new()
+            } else {
+                self.rec.scripts.matching(&self.url, Phase::Response)
+            };
+            if !rewrites.is_empty() || self.break_on_response || !scripts.is_empty() {
                 let (mut parts, body) = res.into_parts();
                 let bytes = match collect(body).await {
                     Ok(b) => b,
@@ -609,7 +675,10 @@ impl FlowHandler {
                     headers: headers_vec(&parts.headers),
                     body: bytes,
                 };
-                if self.break_on_response || rewrites.iter().any(|(rw, _)| rw.target.is_body()) {
+                if self.break_on_response
+                    || !scripts.is_empty()
+                    || rewrites.iter().any(|(rw, _)| rw.target.is_body())
+                {
                     decode_for_edit(&mut r.headers, &mut r.body);
                 }
                 if !rewrites.is_empty() {
@@ -617,6 +686,30 @@ impl FlowHandler {
                     rewrite_response(&mut r, &rewrites);
                     if r != before {
                         self.tag("Rewrite");
+                    }
+                }
+                if !scripts.is_empty() {
+                    let engine = self.rec.scripts.clone();
+                    let pause = self.pause_with();
+                    let (method, url) = (self.method.clone(), self.url.clone());
+                    let before = r.clone();
+                    let mut changed = r.clone();
+                    let ran = tokio::task::spawn_blocking(move || {
+                        let responded = engine.run_response(
+                            &scripts,
+                            &method,
+                            &url,
+                            &mut changed,
+                            pause.as_ref(),
+                        );
+                        (changed, responded)
+                    })
+                    .await;
+                    if let Ok((changed, responded)) = ran {
+                        r = responded.map_or(changed, |Responded(x)| x);
+                        if r != before {
+                            self.tag("Script");
+                        }
                     }
                 }
                 if self.break_on_response {

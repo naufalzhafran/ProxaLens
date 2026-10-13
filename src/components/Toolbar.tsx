@@ -17,7 +17,7 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
   const [port, setPort] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null);
   const settings = useSettings((s) => s.settings);
-  const { openComposer, openSettings, openRules } = useUi.getState();
+  const { openComposer, openSettings, openRules, openScripts } = useUi.getState();
 
   useEffect(() => {
     useSettings.getState().refresh().catch((e) => onError(errorMessage(e)));
@@ -145,6 +145,9 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
 
       <button className={button} title="Map Local, Map Remote, Rewrite, Block, Breakpoints (⌘L)" onClick={() => openRules({ tab: "mapLocal" })}>
         Rules…
+      </button>
+      <button className={button} title="JavaScript onRequest / onResponse hooks (⌘J)" onClick={() => openScripts(true)}>
+        Scripts…
       </button>
 
       <div className="ml-auto flex items-center gap-2">

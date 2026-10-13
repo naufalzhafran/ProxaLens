@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage, type RestoreReport, type Status } from "./api";
 import { BreakpointDialog, useBreakpoints } from "./components/BreakpointDialog";
 import { Composer } from "./components/Composer";
@@ -17,6 +17,8 @@ import { useToast } from "./lib/clipboard";
 import { MAX_FLOWS, useFlows } from "./state/flows";
 import { emptyDraft, useUi } from "./state/ui";
 
+const ScriptsWindow = lazy(() => import("./scripts/ScriptsWindow"));
+
 export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +31,7 @@ export default function App() {
   const diff = useUi((s) => s.diff);
   const settingsTab = useUi((s) => s.settingsTab);
   const rulesView = useUi((s) => s.rules);
+  const scriptsOpen = useUi((s) => s.scriptsOpen);
   const hits = useBreakpoints();
   const sidebar = useResizable(200, 140, 400, "x", "sidebarWidth");
   const table = useResizable(640, 320, 2000, "x", "tableWidth");
@@ -82,7 +85,7 @@ export default function App() {
       if (!e.metaKey || e.shiftKey || e.altKey) return;
       const ui = useUi.getState();
       // Leave shortcuts alone while a dialog is open (except ⌘F/⌘K).
-      const modal = ui.composer || ui.diff || ui.settingsTab || ui.rules;
+      const modal = ui.composer || ui.diff || ui.settingsTab || ui.rules || ui.scriptsOpen;
       const selected = useFlows.getState().selectedId;
       const actions: Record<string, () => void> = {
         f: () => {
@@ -96,6 +99,7 @@ export default function App() {
         r: () => !modal && selected !== null && repeat(selected),
         ",": () => !modal && ui.openSettings("ssl"),
         l: () => !modal && ui.openRules({ tab: "mapLocal" }),
+        j: () => !modal && ui.openScripts(true),
       };
       const action = actions[e.key];
       if (action) {
@@ -151,6 +155,11 @@ export default function App() {
       {diff && <DiffView ids={diff} />}
       {settingsTab && <SettingsDialog initialTab={settingsTab} />}
       {rulesView && <RulesDialog view={rulesView} />}
+      {scriptsOpen && (
+        <Suspense fallback={null}>
+          <ScriptsWindow />
+        </Suspense>
+      )}
       {hits.length > 0 && <BreakpointDialog hits={hits} />}
       {toast && (
         <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md bg-neutral-900 px-3 py-1.5 text-xs text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">

@@ -805,3 +805,53 @@ async fn invalid_rules_are_refused() {
     assert!(h.engine.set_rules(bad).is_err());
     assert_eq!(h.engine.rules(), Rules::default());
 }
+
+#[tokio::test]
+async fn scripts_change_traffic_and_can_answer_requests() {
+    let up = http_upstream().await;
+    let h = harness(vec![], None).await;
+    let scripts = &h.engine.scripts;
+    scripts
+        .create(&project_proxy_lib::engine::script::template(
+            "Auth and plan",
+            "*",
+            r#"function onRequest(ctx) {
+                 ctx.headers["Authorization"] = "Bearer from-script";
+               }
+               function onResponse(ctx) {
+                 if (ctx.url.endsWith("/gzip")) ctx.body = ctx.body.toUpperCase();
+               }"#,
+        ))
+        .unwrap();
+    scripts
+        .create(&project_proxy_lib::engine::script::template(
+            "Mock",
+            "*://mock.invalid/*",
+            r#"function onRequest(ctx) { ctx.respondWith({ status: 202, body: { mocked: ctx.method } }); }"#,
+        ))
+        .unwrap();
+
+    let res = h
+        .client
+        .get(format!("http://{up}/auth"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.text().await.unwrap(), "Bearer from-script");
+    let res = h
+        .client
+        .get(format!("http://{up}/gzip"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        res.text().await.unwrap(),
+        "DECODED TEXT",
+        "scripts see decoded bodies"
+    );
+    let res = h.client.get("http://mock.invalid/x").send().await.unwrap();
+    assert_eq!(res.status(), 202);
+    assert_eq!(res.text().await.unwrap(), r#"{"mocked":"GET"}"#);
+    assert_eq!(h.wait_done("/x").await.tags, vec!["Script"]);
+    assert!(scripts.console().is_empty(), "{:?}", scripts.console());
+}

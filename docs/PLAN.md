@@ -70,7 +70,16 @@ Update this checklist as work lands so any agent or device can pick up where the
   - UI: a Rules dialog (⌘L) with per-kind lists (enable, reorder, delete) and forms. Context menu: Breakpoint…, Map Local… (prefilled from the captured response), Map Remote…, Rewrite…, Block URL…. A breakpoint dialog with Execute / Abort / Continue All and a countdown.
   - Tests: 60 Rust unit, 21 Rust e2e (every rule type, both breakpoint phases, rule validation), 42 vitest.
   - Not done: the Block *list* stays host-based in Settings. Block *rules* are the URL-pattern version.
-- [ ] Phase 5: Scripting
+- [x] Phase 5: Scripting
+  - `engine/script.rs`: a port of httpmon's `scripting/` on QuickJS (`rquickjs`). Each call gets a fresh runtime with a 64 MB memory limit and a 5 s CPU limit (time paused at a breakpoint doesn't count).
+    - A small JS prelude builds `ctx` with httpmon's API: `method/url/headers/body/blocked`, `status`, `respondWith({status, headers, body} | {file})` (which stops `onRequest`), `readFile`, `breakpoint()` and `console.*`. Rust only exposes `__log`, `__readFile` and `__breakpoint`, and values cross as JSON.
+    - `breakpoint()` blocks the script's `spawn_blocking` thread on the shared breakpoint controller.
+  - File format matches httpmon: a `// ---` YAML-style header (id, name, match list, enabled), parsed by a small built-in parser. Missing ids are written back; there's toggle, create, delete and reload. Globs port httpmon's `GlobMatch`, and a pattern without a scheme matches any scheme.
+  - Paths: relative paths stay inside the scripts folder (no `..`). Absolute paths are allowed, as in httpmon's Map Local scripts.
+  - Pipeline: scripts run after the request rewrite and before the request breakpoint, and after the response rewrite and before the response breakpoint. Scripts see decoded bodies. Repeated headers (Set-Cookie) survive unless a script changes them. Flows are tagged "Script".
+  - UI: a Scripts window (⌘J, lazy-loaded) with a list (enable toggle, categories, header errors), a locally bundled Monaco editor (no CDN) with `ctx` type definitions for autocomplete, ⌘S to save, templates, and a console for `console.log` output and script errors.
+  - Tests: 14 script unit tests (ported from httpmon's scripting, glob, header, loader, respondWith and breakpoint tests), plus an e2e test. Totals: 74 Rust unit, 22 Rust e2e, 42 vitest.
+  - `dompurify` is pinned to ≥3.4.17 through `overrides`, because Monaco 0.57 ships a version with an advisory.
 - [ ] Phase 6: Advanced
 
 ## Assessment of httpmon

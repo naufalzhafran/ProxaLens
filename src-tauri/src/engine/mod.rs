@@ -8,6 +8,7 @@ pub mod har;
 pub mod proxy;
 pub mod repeat;
 pub mod rules;
+pub mod script;
 pub mod settings;
 pub mod store;
 pub mod sysproxy;
@@ -33,6 +34,7 @@ use ca::CaBundle;
 use proxy::{FlowHandler, Recorder};
 use repeat::{OutgoingRequest, RepeatError};
 use rules::{CompiledRules, Rules};
+use script::Scripts;
 use settings::Settings;
 use store::{FlowData, FlowId, FlowMeta, Store};
 use sysproxy::{NetworkSetup, RestoreReport, SysProxyError};
@@ -101,6 +103,7 @@ pub struct Engine {
     settings: Arc<parking_lot::RwLock<Settings>>,
     rules: Arc<parking_lot::RwLock<Arc<CompiledRules>>>,
     pub breakpoints: Arc<Breakpoints>,
+    pub scripts: Arc<Scripts>,
     running: Mutex<Option<Running>>,
 }
 
@@ -117,6 +120,10 @@ impl Engine {
                 rules,
             )))),
             breakpoints: Arc::new(Breakpoints::new(breakpoint::DEFAULT_TIMEOUT)),
+            scripts: Arc::new(Scripts::new(
+                cfg.data_dir.join("scripts"),
+                script::DEFAULT_TIMEOUT,
+            )),
             cfg,
             running: Mutex::new(None),
         })
@@ -222,6 +229,7 @@ impl Engine {
             self.settings.clone(),
             self.rules.clone(),
             self.breakpoints.clone(),
+            self.scripts.clone(),
         ));
         let (tx, rx) = oneshot::channel::<()>();
         let proxy = Proxy::builder()
