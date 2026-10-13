@@ -54,7 +54,13 @@ function Node({ name, value, depth, last }: { name: string | null; value: Json; 
 
   return (
     <div>
-      <div style={{ paddingLeft: depth * 14 }} className="cursor-default" onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        aria-expanded={open}
+        style={{ paddingLeft: depth * 14 }}
+        className="block w-full cursor-default text-left"
+        onClick={() => setOpen(!open)}
+      >
         <span className="inline-block w-3 text-[9px] text-neutral-400">{open ? "▼" : "▶"}</span>
         {label}
         {openB}
@@ -68,7 +74,7 @@ function Node({ name, value, depth, last }: { name: string | null; value: Json; 
             {comma}
           </>
         )}
-      </div>
+      </button>
       {open && (
         <>
           {entries.slice(0, shown).map(([k, v], i) => (

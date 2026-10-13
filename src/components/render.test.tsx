@@ -99,3 +99,28 @@ describe("WebSocket filtering", () => {
     expect(filterWs(list, "clientToServer", "unsubscribe", false)).toEqual([]);
   });
 });
+
+describe("keyboard access", () => {
+  it("gives only the selected tab a tab stop", async () => {
+    const { Tabs } = await import("./ui");
+    const html = renderToStaticMarkup(
+      <Tabs value="b" onChange={() => {}} tabs={[{ id: "a", label: "A" }, { id: "b", label: "B" }]} />,
+    );
+    expect(html).toMatch(/data-tab="a" tabindex="-1"/);
+    expect(html).toMatch(/data-tab="b" tabindex="0"/);
+  });
+
+  it("renders sidebar rows as focusable buttons, marking the current one", async () => {
+    const { Row } = await import("./Sidebar");
+    const html = renderToStaticMarkup(
+      <>
+        <Row label="curl" count={2} selected onClick={() => {}} />
+        <Row label="example.com" count={3} selected={false} caret={false} onCaret={() => {}} onClick={() => {}} />
+      </>,
+    );
+    expect(html.match(/<button data-nav-row/g)).toHaveLength(2);
+    expect(html).toMatch(/<button data-nav-row="true" aria-current="true" title="curl"/);
+    expect(html).toContain('aria-label="Expand example.com"');
+    expect(html).toContain('aria-expanded="false"');
+  });
+});

@@ -181,11 +181,14 @@ export default function App() {
         </Suspense>
       )}
       {hits.length > 0 && <BreakpointDialog hits={hits} />}
-      {toast && (
-        <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md bg-neutral-900 px-3 py-1.5 text-xs text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">
-          {toast}
-        </div>
-      )}
+      {/* Always mounted, so screen readers announce each new message. */}
+      <div role="status" aria-live="polite" className="pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2">
+        {toast && (
+          <div className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">
+            {toast}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -217,7 +220,7 @@ function Banner({
     error: "bg-red-50 text-red-900 dark:bg-red-950 dark:text-red-200",
   }[tone];
   return (
-    <div className={`flex items-center gap-2 px-3 py-1.5 text-xs ${colors}`}>
+    <div role={tone === "error" ? "alert" : "status"} className={`flex items-center gap-2 px-3 py-1.5 text-xs ${colors}`}>
       <span className="flex-1">{children}</span>
       {onClose && (
         <button className="opacity-60 hover:opacity-100" onClick={onClose} aria-label="Dismiss">

@@ -1,10 +1,11 @@
 // Left pane: all traffic, pinned domains, and a domain → host tree.
 import { useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Pin } from "lucide-react";
 import type { FlowMeta } from "../api";
 import type { Scope } from "../lib/filter";
 import { baseDomain } from "../lib/http";
 import { useFlows } from "../state/flows";
-import { ContextMenu, type MenuEntry } from "./ui";
+import { ContextMenu, contextMenuKey, type MenuEntry } from "./ui";
 
 interface DomainGroup {
   domain: string;
@@ -73,7 +74,7 @@ export function Sidebar() {
     : [];
 
   return (
-    <nav className="flex min-h-0 flex-1 flex-col overflow-auto py-2 text-xs">
+    <nav aria-label="Traffic" onKeyDown={onNavKeyDown} className="flex min-h-0 flex-1 flex-col overflow-auto py-2 text-xs">
       <Row selected={isSelected(null)} onClick={() => setScope(null)} label="All traffic" count={order.length} />
 
       {pinned.length > 0 && (
@@ -82,7 +83,7 @@ export function Sidebar() {
           {pinned.map((p) => (
             <Row
               key={p}
-              icon="📌"
+              icon={<Pin size={11} className="shrink-0" aria-label="Pinned" />}
               label={p}
               count={counts.get(p)}
               selected={isSelected({ kind: "domain", value: p })}
@@ -153,7 +154,7 @@ function Heading({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Row({
+export function Row({
   label,
   count,
   selected,
@@ -169,37 +170,61 @@ function Row({
   selected: boolean;
   onClick: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
-  icon?: string;
+  icon?: React.ReactNode;
   indent?: boolean;
   caret?: boolean;
   onCaret?: () => void;
 }) {
   return (
     <div
-      onClick={onClick}
-      onContextMenu={onContextMenu}
-      title={label}
-      className={`mx-1 flex cursor-default items-center gap-1 rounded px-2 py-0.5 ${indent ? "pl-7" : ""} ${
+      className={`mx-1 flex items-center rounded ${indent ? "pl-5" : ""} ${
         selected ? "bg-sky-600 text-white" : "hover:bg-neutral-200/60 dark:hover:bg-neutral-800"
       }`}
     >
       {caret !== undefined ? (
         <button
-          className="w-3 text-[9px] opacity-60"
-          aria-label={caret ? "Collapse" : "Expand"}
-          onClick={(e) => {
-            e.stopPropagation();
-            onCaret?.();
-          }}
+          tabIndex={-1}
+          className="flex w-5 shrink-0 justify-center self-stretch opacity-60"
+          aria-label={caret ? `Collapse ${label}` : `Expand ${label}`}
+          onClick={onCaret}
         >
-          {caret ? "▼" : "▶"}
+          {caret ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
       ) : (
-        !indent && <span className="w-3" />
+        <span className="w-5 shrink-0" />
       )}
-      {icon && <span className="text-[10px]">{icon}</span>}
-      <span className="flex-1 truncate">{label}</span>
-      {count !== undefined && <span className={selected ? "opacity-80" : "text-neutral-400"}>{count}</span>}
+      <button
+        data-nav-row
+        aria-current={selected ? "true" : undefined}
+        aria-expanded={caret}
+        title={label}
+        onClick={onClick}
+        onContextMenu={onContextMenu}
+        onKeyDown={(e) => {
+          if (contextMenuKey(e)) return;
+          // → expands and ← collapses a domain, as in a Finder sidebar.
+          if ((e.key === "ArrowRight" && caret === false) || (e.key === "ArrowLeft" && caret === true)) {
+            e.preventDefault();
+            onCaret?.();
+          }
+        }}
+        className="flex min-w-0 flex-1 cursor-default items-center gap-1 py-0.5 pr-2 text-left"
+      >
+        {icon}
+        <span className="flex-1 truncate">{label}</span>
+        {count !== undefined && <span className={selected ? "opacity-80" : "text-neutral-400"}>{count}</span>}
+      </button>
     </div>
   );
+}
+
+/** ↑/↓ move focus between sidebar rows. */
+function onNavKeyDown(e: React.KeyboardEvent) {
+  const by = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+  if (!by) return;
+  const rows = [...e.currentTarget.querySelectorAll<HTMLElement>("[data-nav-row]")];
+  const i = rows.indexOf(document.activeElement as HTMLElement);
+  if (i < 0) return;
+  e.preventDefault();
+  rows[Math.min(rows.length - 1, Math.max(0, i + by))].focus();
 }

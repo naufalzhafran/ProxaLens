@@ -18,6 +18,12 @@ body {
   -webkit-user-select: none;
 }
 
+/* A visible ring for keyboard focus; zero specificity, so utilities win. */
+:where(button, a, input, select, textarea, [tabindex], [role="separator"]):focus-visible {
+  outline: 2px solid var(--color-sky-500);
+  outline-offset: 1px;
+}
+
 .selectable {
   user-select: text;
   -webkit-user-select: text;

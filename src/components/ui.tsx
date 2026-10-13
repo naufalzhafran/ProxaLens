@@ -75,9 +75,20 @@ export function Tabs<T extends string>({
     <div
       className="flex items-center gap-0.5 overflow-x-auto px-2 shadow-[inset_0_-1px_0_var(--color-neutral-200)] [scrollbar-width:none] dark:shadow-[inset_0_-1px_0_var(--color-neutral-800)]"
       role="tablist"
+      onKeyDown={(e) => {
+        const by = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+        if (!by) return;
+        e.preventDefault();
+        const i = tabs.findIndex((t) => t.id === value);
+        const next = tabs[(i + by + tabs.length) % tabs.length];
+        onChange(next.id);
+        e.currentTarget.querySelector<HTMLElement>(`[data-tab="${next.id}"]`)?.focus();
+      }}
     >
       {tabs.map((t) => (
         <button
+          data-tab={t.id}
+          tabIndex={t.id === value ? 0 : -1}
           key={t.id}
           role="tab"
           aria-selected={t.id === value}
@@ -164,6 +175,10 @@ export function Popover({
   children: React.ReactNode;
 }) {
   const { ref, style } = useFloating(x, y, onClose);
+  useRestoreFocus();
+  useEffect(() => {
+    ref.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+  }, [ref]);
   return (
     <div
       ref={ref}
@@ -190,6 +205,30 @@ export function useAnchor() {
   };
 }
 
+const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), textarea, select, [href], [tabindex]:not([tabindex="-1"])';
+
+/** Puts focus back where it was when the component unmounts. */
+function useRestoreFocus() {
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    return () => {
+      if (before?.isConnected) before.focus();
+    };
+  }, []);
+}
+
+/**
+ * The context-menu key (or ⇧F10) opens the element's context menu, as a
+ * right-click at its bottom-left corner would.
+ */
+export function contextMenuKey(e: React.KeyboardEvent, el: Element | null = e.currentTarget) {
+  if (!el || !(e.key === "ContextMenu" || (e.shiftKey && e.key === "F10"))) return false;
+  e.preventDefault();
+  const r = el.getBoundingClientRect();
+  el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 8, clientY: r.bottom }));
+  return true;
+}
+
 /** A context menu at a fixed screen position, closed by click-away or Escape. */
 export function ContextMenu({
   x,
@@ -204,11 +243,28 @@ export function ContextMenu({
 }) {
   const { ref, style } = useFloating(x, y, onClose);
   const checks = items.some((i) => i !== "separator" && i.checked !== undefined);
+  useRestoreFocus();
+
+  // Focus the first item so the menu works from the keyboard at once.
+  useEffect(() => {
+    ref.current?.querySelector<HTMLElement>("[role^=menuitem]:not(:disabled)")?.focus();
+  }, [ref]);
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    const enabled = [...e.currentTarget.querySelectorAll<HTMLElement>("[role^=menuitem]:not(:disabled)")];
+    const i = enabled.indexOf(document.activeElement as HTMLElement);
+    const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: enabled.length - 1 }[e.key];
+    if (e.key === "Tab") onClose();
+    if (to === undefined || !enabled.length) return;
+    e.preventDefault();
+    enabled[(to + enabled.length) % enabled.length].focus();
+  }
 
   return (
     <div
       ref={ref}
       role="menu"
+      onKeyDown={onKeyDown}
       style={style}
       className="fixed z-50 min-w-48 rounded-md border border-neutral-200 bg-white py-1 text-xs shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
     >
@@ -225,7 +281,7 @@ export function ContextMenu({
               if (!item.keepOpen) onClose();
               item.onSelect();
             }}
-            className="flex w-full items-center px-3 py-1 text-left hover:bg-sky-600 hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-inherit"
+            className="flex w-full items-center px-3 py-1 text-left outline-none hover:bg-sky-600 hover:text-white focus:bg-sky-600 focus:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-inherit"
           >
             {checks && <span className="w-4 shrink-0">{item.checked ? "✓" : ""}</span>}
             {item.label}
@@ -315,22 +371,50 @@ export function Modal({
   wide?: boolean;
   narrow?: boolean;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!onClose) return;
     const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [onClose]);
+  useRestoreFocus();
+  // Start in the first field (unless a child took focus with autoFocus).
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || el.contains(document.activeElement)) return;
+    (el.querySelector<HTMLElement>("input, textarea, select") ?? el).focus();
+  }, []);
+
+  /** Keeps Tab inside the dialog. */
+  function trap(e: React.KeyboardEvent) {
+    if (e.key !== "Tab" || e.defaultPrevented) return;
+    const items = [...e.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => n.offsetParent !== null);
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === e.currentTarget)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-6"
       onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}
     >
       <div
+        ref={ref}
         role="dialog"
         aria-modal
         aria-label={title}
-        className={`flex max-h-full w-full flex-col rounded-xl border border-neutral-200 bg-white text-xs shadow-2xl dark:border-neutral-700 dark:bg-neutral-900 ${
+        tabIndex={-1}
+        onKeyDown={trap}
+        className={`flex max-h-full w-full flex-col rounded-xl border outline-none border-neutral-200 bg-white text-xs shadow-2xl dark:border-neutral-700 dark:bg-neutral-900 ${
           wide ? "max-w-5xl" : narrow ? "max-w-lg" : "max-w-2xl"
         }`}
       >

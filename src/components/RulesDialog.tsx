@@ -1,5 +1,5 @@
 // Editor for Map Local, Map Remote, Rewrite, Block and Breakpoint rules.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   api,
@@ -44,6 +44,13 @@ export function RulesDialog({ view }: { view: RulesView }) {
   }, [view]);
 
   const dirty = useMemo(() => rules !== null && JSON.stringify(rules) !== saved, [rules, saved]);
+  // A rule moved or picked from the keyboard keeps focus after re-rendering.
+  const focusRule = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusRule.current) return;
+    document.querySelector<HTMLElement>(`[data-rule-id="${focusRule.current}"]`)?.focus();
+    focusRule.current = null;
+  });
 
   if (!rules) return null;
   const cancel = guardedClose(dirty, close, "rule changes");
@@ -112,11 +119,28 @@ export function RulesDialog({ view }: { view: RulesView }) {
         tabs={RULE_KINDS.map((k) => ({ id: k.id, label: k.label, badge: rules[k.id].length || undefined }))}
       />
       <div className="flex min-h-[380px] gap-3 pt-3">
-        <div className="flex w-64 shrink-0 flex-col gap-1">
+        <div className="flex w-64 shrink-0 flex-col gap-1" role="listbox" aria-label="Rules" aria-description="⌥↑ and ⌥↓ reorder">
           {list.map((r, i) => (
             <div
               key={r.id}
+              data-rule-id={r.id}
+              role="option"
+              aria-selected={r.id === selected}
+              tabIndex={r.id === selected || (selected === null && i === 0) ? 0 : -1}
               onClick={() => setSelected(r.id)}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                const by = { ArrowUp: -1, ArrowDown: 1 }[e.key];
+                if (!by) return;
+                e.preventDefault();
+                if (e.altKey) {
+                  move(r.id, by);
+                  focusRule.current = r.id;
+                } else if (list[i + by]) {
+                  setSelected(list[i + by].id);
+                  focusRule.current = list[i + by].id;
+                }
+              }}
               className={`group flex cursor-default items-start gap-2 rounded-md px-2 py-1 ${
                 r.id === selected ? "bg-sky-600 text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
               }`}
@@ -136,7 +160,7 @@ export function RulesDialog({ view }: { view: RulesView }) {
                   {ruleSummary(tab, r)}
                 </div>
               </div>
-              <div className="hidden gap-0.5 group-hover:flex">
+              <div className="hidden gap-0.5 group-focus-within:flex group-hover:flex">
                 <button aria-label="Move up" disabled={i === 0} onClick={(e) => (e.stopPropagation(), move(r.id, -1))}>
                   ↑
                 </button>

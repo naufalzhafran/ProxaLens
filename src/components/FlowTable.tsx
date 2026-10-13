@@ -11,7 +11,7 @@ import { formatBytes, formatDuration, formatTime, shortContentType, statusColor 
 import { useColumns, type ColumnKey, type Sort } from "../state/columns";
 import { useFlows } from "../state/flows";
 import { useUi } from "../state/ui";
-import { ContextMenu, type MenuEntry } from "./ui";
+import { ContextMenu, contextMenuKey, type MenuEntry } from "./ui";
 
 const ROW_HEIGHT = 24;
 const HEADER_HEIGHT = 24;
@@ -181,6 +181,7 @@ export function FlowTable() {
 
   function onKeyDown(e: React.KeyboardEvent) {
     const s = useFlows.getState();
+    if (contextMenuKey(e, e.currentTarget.querySelector(`[data-id="${selectedId}"]`))) return;
     if (e.metaKey && e.key === "a") {
       e.preventDefault();
       s.selectAll(rows);
@@ -260,6 +261,7 @@ export function FlowTable() {
                 return (
                   <div
                     key={f.id}
+                    data-id={f.id}
                     aria-selected={sel}
                     onClick={(e) => onRowClick(e, f.id)}
                     onContextMenu={(e) => onRowMenu(e, f)}
