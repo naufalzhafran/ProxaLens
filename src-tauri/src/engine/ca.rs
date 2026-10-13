@@ -15,7 +15,7 @@ use hudsucker::rcgen::{
 };
 use hudsucker::rustls::crypto::aws_lc_rs;
 
-pub const CA_COMMON_NAME: &str = "Project Proxy CA";
+pub const CA_COMMON_NAME: &str = "ProxaLens CA";
 const KEY_FILE: &str = "ca-key.pem";
 const CERT_PEM_FILE: &str = "ca-cert.pem";
 const CERT_DER_FILE: &str = "ca-cert.cer";
@@ -142,7 +142,7 @@ fn generate() -> Result<(String, String, Vec<u8>), CaError> {
     let mut params = CertificateParams::default();
     let mut dn = DistinguishedName::new();
     dn.push(DnType::CommonName, CA_COMMON_NAME);
-    dn.push(DnType::OrganizationName, "Project Proxy");
+    dn.push(DnType::OrganizationName, "ProxaLens");
     params.distinguished_name = dn;
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     params.key_usages = vec![

@@ -71,7 +71,7 @@ describe("Onboarding", () => {
       caFingerprint: "AB:CD", systemProxyEnabled: false, dataDir: "/d", recording: true,
     };
     const html = renderToStaticMarkup(<Onboarding status={status} setStatus={() => {}} onClose={() => {}} />);
-    expect(html).toContain('aria-label="Set up Project Proxy"');
+    expect(html).toContain('aria-label="Set up ProxaLens"');
     expect(html).toContain('aria-label="Close"');
     expect(html).toContain("Skip for now");
   });

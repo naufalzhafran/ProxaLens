@@ -102,7 +102,8 @@ export function compareWith(id: number) {
 }
 
 const HAR = [{ name: "HTTP Archive", extensions: ["har"] }];
-const SESSION = [{ name: "Project Proxy Session", extensions: ["ppsession"] }];
+// .ppsession is the extension sessions had before the app was renamed.
+const SESSION = [{ name: "ProxaLens Session", extensions: ["proxalens", "ppsession"] }];
 
 async function run(fn: () => Promise<string | null>) {
   try {
@@ -123,7 +124,7 @@ export const files = {
     }),
   saveSession: () =>
     run(async () => {
-      const path = await save({ filters: SESSION, defaultPath: "session.ppsession" });
+      const path = await save({ filters: SESSION, defaultPath: "session.proxalens" });
       return path ? `Saved ${plural(await api.saveSession(path))}` : null;
     }),
   /** Opens a session or HAR, replacing the current flows. */

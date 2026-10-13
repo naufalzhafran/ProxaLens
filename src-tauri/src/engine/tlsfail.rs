@@ -143,7 +143,7 @@ where
 /// A short explanation of why the client hung up.
 pub fn describe(error: &str) -> String {
     let e = error.to_ascii_lowercase();
-    let hint = "It may pin its certificate, or the Project Proxy certificate isn't trusted. \
+    let hint = "It may pin its certificate, or the ProxaLens certificate isn't trusted. \
                 Right-click → Don't Decrypt This Host to let it through untouched.";
     if e.contains("eof") || e.contains("reset") {
         format!("The client closed the connection during the TLS handshake. {hint}")

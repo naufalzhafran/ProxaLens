@@ -3,8 +3,8 @@
 
 fn main() {
     // The same binary doubles as the system proxy watchdog (see engine/guard.rs).
-    if project_proxy_lib::engine::guard::run_if_requested() {
+    if proxalens_lib::engine::guard::run_if_requested() {
         return;
     }
-    project_proxy_lib::run()
+    proxalens_lib::run()
 }

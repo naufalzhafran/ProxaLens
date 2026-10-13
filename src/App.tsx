@@ -147,7 +147,7 @@ export default function App() {
       )}
       {status && !status.caTrusted && !setupOpen && (
         <Banner tone="warn">
-          HTTPS traffic can’t be decrypted until the Project Proxy certificate is trusted.{" "}
+          HTTPS traffic can’t be decrypted until the ProxaLens certificate is trusted.{" "}
           <button className="underline" onClick={() => setSetupOpen(true)}>
             Set up…
           </button>

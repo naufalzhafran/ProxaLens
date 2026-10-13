@@ -54,7 +54,7 @@ monaco.typescript.javascriptDefaults.setCompilerOptions({
   checkJs: true,
   noLib: false,
 });
-monaco.typescript.javascriptDefaults.addExtraLib(CTX_TYPES, "ts:project-proxy/ctx.d.ts");
+monaco.typescript.javascriptDefaults.addExtraLib(CTX_TYPES, "ts:proxalens/ctx.d.ts");
 
 loader.config({ monaco });
 

@@ -327,7 +327,7 @@ fn text_response(status: StatusCode, msg: &str) -> Response<Body> {
     Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
-        .body(Body::from(format!("Project Proxy: {msg}")))
+        .body(Body::from(format!("ProxaLens: {msg}")))
         .expect("static response")
 }
 
@@ -401,7 +401,7 @@ pub fn local_page(local: &LocalPages, req: &Request<Body>) -> Option<Response<Bo
             local.ca_pem.clone().into_bytes(),
             Some((
                 "content-disposition",
-                "attachment; filename=\"ProjectProxyCA.pem\"",
+                "attachment; filename=\"ProxaLensCA.pem\"",
             )),
         ),
         "/cert.cer" => respond(
@@ -410,7 +410,7 @@ pub fn local_page(local: &LocalPages, req: &Request<Body>) -> Option<Response<Bo
             local.ca_der.clone(),
             Some((
                 "content-disposition",
-                "attachment; filename=\"ProjectProxyCA.cer\"",
+                "attachment; filename=\"ProxaLensCA.cer\"",
             )),
         ),
         "/proxy.pac" => respond(
@@ -438,9 +438,9 @@ pub fn pac_file(proxy: &str) -> String {
 fn setup_html(proxy: &str) -> String {
     format!(
         r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Project Proxy setup</title>
+<title>ProxaLens setup</title>
 <style>body{{font:16px -apple-system,system-ui,sans-serif;max-width:34rem;margin:2rem auto;padding:0 1rem;line-height:1.5}}a.b{{display:block;margin:.5rem 0;padding:.75rem 1rem;border-radius:.5rem;background:#0284c7;color:#fff;text-decoration:none;text-align:center}}code{{background:#eee;padding:.1rem .3rem;border-radius:.25rem}}</style></head>
-<body><h1>Project Proxy</h1>
+<body><h1>ProxaLens</h1>
 <p>Proxy address: <code>{proxy}</code></p>
 <h2>1. Install the certificate</h2>
 <a class="b" href="/cert.pem">Download certificate</a>

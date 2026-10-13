@@ -1,7 +1,7 @@
 //! HAR 1.2 export/import (port of httpmon's `internal/har`), plus sessions.
 //!
 //! A session file is a zstd-compressed HAR. Fields HAR has no room for
-//! (flow state, errors, WebSocket messages…) go in a `_projectProxy`
+//! (flow state, errors, WebSocket messages…) go in a `_proxaLens`
 //! extension object, which other tools ignore.
 
 use base64::Engine as _;
@@ -14,7 +14,7 @@ use serde_json::Value;
 use super::decode;
 use super::store::{FlowData, FlowMeta, FlowState, WsDirection, WsMessage};
 
-const CREATOR: &str = "Project Proxy";
+const CREATOR: &str = "ProxaLens";
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
 
 #[derive(Debug, thiserror::Error)]
@@ -55,7 +55,12 @@ pub struct Entry {
     pub response: Response,
     pub cache: Value,
     pub timings: Timings,
-    #[serde(rename = "_projectProxy", skip_serializing_if = "Option::is_none")]
+    // `_projectProxy` is the name sessions used before the app was renamed.
+    #[serde(
+        rename = "_proxaLens",
+        alias = "_projectProxy",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub extra: Option<Extra>,
 }
 
@@ -581,6 +586,19 @@ mod tests {
         assert!(d2.response_body_truncated && d2.bodies_decoded);
         assert_eq!(d2.ws_messages[0].payload, b"hi");
         assert_eq!(m2.ws_message_count, 1);
+    }
+
+    #[test]
+    fn reads_sessions_saved_before_the_rename() {
+        let (m, mut d) = flow();
+        d.response_body_truncated = true;
+        let json = serde_json::to_string(&export(&[(m, d)])).unwrap();
+        assert!(json.contains("\"_proxaLens\""));
+        let old = json.replace("\"_proxaLens\"", "\"_projectProxy\"");
+        let flows = import(parse(old.as_bytes()).unwrap());
+        let (m2, d2) = &flows[0];
+        assert_eq!((m2.status, m2.state), (Some(201), FlowState::Completed));
+        assert!(d2.response_body_truncated);
     }
 
     #[test]

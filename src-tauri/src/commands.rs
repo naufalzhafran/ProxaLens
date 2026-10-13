@@ -477,7 +477,7 @@ pub async fn mcp_info(state: State<'_, AppState>) -> CmdResult<McpInfo> {
     Ok(McpInfo {
         running: addr.is_some(),
         claude_command: url.as_ref().map(|u| {
-            format!("claude mcp add --transport http project-proxy {u} --header \"Authorization: Bearer {token}\"")
+            format!("claude mcp add --transport http proxalens {u} --header \"Authorization: Bearer {token}\"")
         }),
         url,
         token,

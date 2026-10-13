@@ -1,4 +1,4 @@
-# project-proxy
+# ProxaLens
 
 A free, Proxyman-style HTTP/HTTPS debugging proxy for macOS, built with Tauri v2, a Rust engine and a React + TypeScript UI.
 

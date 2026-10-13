@@ -55,7 +55,7 @@ export function Onboarding({
   return (
     // Escape, the backdrop and ✕ all count as "Skip for now".
     <Modal
-      title="Set up Project Proxy"
+      title="Set up ProxaLens"
       narrow
       onClose={finish}
       footer={
@@ -69,7 +69,7 @@ export function Onboarding({
       <Step
         n={1}
         done={status.caTrusted}
-        title="Trust the Project Proxy certificate"
+        title="Trust the ProxaLens certificate"
         body={
           <>
             HTTPS traffic is decrypted with a root certificate created for this install only. macOS asks for your

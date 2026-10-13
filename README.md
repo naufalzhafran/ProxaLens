@@ -1,4 +1,4 @@
-# Project Proxy
+# ProxaLens
 
 A free, Proxyman-style HTTP/HTTPS debugging proxy for macOS. Built with Tauri v2, a Rust proxy engine ([hudsucker](https://github.com/omjadas/hudsucker)), and React + TypeScript.
 
@@ -44,7 +44,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 To try the proxy without changing system settings, use curl:
 
 ```bash
-curl -x http://127.0.0.1:9090 --cacert "$HOME/Library/Application Support/dev.naufalzhafran.projectproxy/ca/ca-cert.pem" https://httpbin.org/get
+curl -x http://127.0.0.1:9090 --cacert "$HOME/Library/Application Support/dev.naufalzhafran.proxalens/ca/ca-cert.pem" https://httpbin.org/get
 ```
 
 ## Credits

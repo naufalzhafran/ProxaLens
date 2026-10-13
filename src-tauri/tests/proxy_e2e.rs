@@ -15,15 +15,15 @@ use hudsucker::hyper_util::rt::TokioIo;
 use hudsucker::rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use hudsucker::rustls::ServerConfig;
 use hudsucker::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use project_proxy_lib::engine::breakpoint::{Edits, Phase, Resume};
-use project_proxy_lib::engine::repeat::OutgoingRequest;
-use project_proxy_lib::engine::rules::{
+use proxalens_lib::engine::breakpoint::{Edits, Phase, Resume};
+use proxalens_lib::engine::repeat::OutgoingRequest;
+use proxalens_lib::engine::rules::{
     BlockRule, BreakpointRule, MapLocal, MapRemote, Matcher, Rewrite, RewriteAction, RewriteTarget,
     Rules,
 };
-use project_proxy_lib::engine::settings::{HostList, Settings};
-use project_proxy_lib::engine::store::{FlowMeta, FlowState};
-use project_proxy_lib::engine::{Engine, EngineConfig, decode};
+use proxalens_lib::engine::settings::{HostList, Settings};
+use proxalens_lib::engine::store::{FlowMeta, FlowState};
+use proxalens_lib::engine::{Engine, EngineConfig, decode};
 use tokio::net::TcpListener;
 
 async fn route(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
@@ -751,7 +751,7 @@ async fn block_rule_matches_urls() {
     assert_eq!(h.wait_done("/big").await.state, FlowState::Blocked);
 }
 
-async fn wait_for_hit(h: &Harness, phase: Phase) -> project_proxy_lib::engine::breakpoint::Hit {
+async fn wait_for_hit(h: &Harness, phase: Phase) -> proxalens_lib::engine::breakpoint::Hit {
     for _ in 0..200 {
         if let Some(hit) = h
             .engine
@@ -856,7 +856,7 @@ async fn scripts_change_traffic_and_can_answer_requests() {
     let h = harness(vec![], None).await;
     let scripts = &h.engine.scripts;
     scripts
-        .create(&project_proxy_lib::engine::script::template(
+        .create(&proxalens_lib::engine::script::template(
             "Auth and plan",
             "*",
             r#"function onRequest(ctx) {
@@ -868,7 +868,7 @@ async fn scripts_change_traffic_and_can_answer_requests() {
         ))
         .unwrap();
     scripts
-        .create(&project_proxy_lib::engine::script::template(
+        .create(&proxalens_lib::engine::script::template(
             "Mock",
             "*://mock.invalid/*",
             r#"function onRequest(ctx) { ctx.respondWith({ status: 202, body: { mocked: ctx.method } }); }"#,
@@ -965,7 +965,7 @@ async fn captures_websocket_messages_both_ways() {
             )
         })
         .collect();
-    use project_proxy_lib::engine::store::WsDirection::*;
+    use proxalens_lib::engine::store::WsDirection::*;
     assert_eq!(
         texts,
         vec![

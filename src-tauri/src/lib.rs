@@ -15,9 +15,9 @@ use engine::{Engine, EngineConfig, SysProxyController};
 pub fn run() {
     // hudsucker logs every refused handshake as an error; those are shown in
     // the flow list instead (see tlsfail.rs), so keep them out of the
-    // terminal unless PROJECT_PROXY_DEBUG is set.
+    // terminal unless PROXALENS_DEBUG is set.
     use tracing_subscriber::prelude::*;
-    let debug = std::env::var_os("PROJECT_PROXY_DEBUG").is_some();
+    let debug = std::env::var_os("PROXALENS_DEBUG").is_some();
     let (tls_failures, failures) = engine::tlsfail::layer();
     tracing_subscriber::registry()
         .with(tls_failures)
@@ -38,6 +38,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
+            match engine::migrate_data_dir(&data_dir) {
+                Ok(true) => tracing::info!(
+                    "moved data from {} to {}",
+                    engine::OLD_DATA_DIR,
+                    data_dir.display()
+                ),
+                Ok(false) => {}
+                Err(e) => tracing::warn!("could not move data from {}: {e}", engine::OLD_DATA_DIR),
+            }
             let engine = Arc::new(Engine::new(EngineConfig::new(&data_dir))?);
             failures.connect(engine::tlsfail::recorder(engine.store.clone()));
             let marker = data_dir.join("sysproxy.marker.json");

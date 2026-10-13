@@ -43,6 +43,24 @@ use store::{FlowData, FlowId, FlowMeta, Store};
 use sysproxy::{NetworkSetup, RestoreReport, SysProxyError};
 
 pub const DEFAULT_PORT: u16 = 9090;
+
+/// The data folder's name before the app was renamed to ProxaLens.
+pub const OLD_DATA_DIR: &str = "dev.naufalzhafran.projectproxy";
+
+/// Moves the data folder from before the rename (CA, settings, rules,
+/// scripts and the crash-recovery marker) to `data_dir`, so the trusted CA
+/// and a pending proxy restore carry over. Does nothing once `data_dir`
+/// exists. Returns whether it moved.
+pub fn migrate_data_dir(data_dir: &Path) -> std::io::Result<bool> {
+    let Some(old) = data_dir.parent().map(|p| p.join(OLD_DATA_DIR)) else {
+        return Ok(false);
+    };
+    if data_dir.exists() || !old.is_dir() {
+        return Ok(false);
+    }
+    std::fs::rename(&old, data_dir)?;
+    Ok(true)
+}
 pub const LOCALHOST: &str = "127.0.0.1";
 
 #[derive(Debug, thiserror::Error)]
@@ -418,5 +436,40 @@ pub fn emergency_restore(marker_path: &Path) {
         && m.pid == std::process::id()
     {
         let _ = sysproxy::restore(&sysproxy::RealNetworkSetup, marker_path, &m);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn moves_the_old_data_folder_once() {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join(OLD_DATA_DIR);
+        let new = root.path().join("dev.naufalzhafran.proxalens");
+        std::fs::create_dir_all(old.join("ca")).unwrap();
+        std::fs::write(old.join("ca/ca-cert.pem"), "cert").unwrap();
+
+        assert!(migrate_data_dir(&new).unwrap());
+        assert_eq!(
+            std::fs::read_to_string(new.join("ca/ca-cert.pem")).unwrap(),
+            "cert"
+        );
+        assert!(!old.exists());
+
+        // Nothing to move any more, and an existing folder is never replaced.
+        assert!(!migrate_data_dir(&new).unwrap());
+        std::fs::create_dir_all(&old).unwrap();
+        assert!(!migrate_data_dir(&new).unwrap());
+        assert!(old.exists());
+    }
+
+    #[test]
+    fn leaves_a_fresh_install_alone() {
+        let root = tempfile::tempdir().unwrap();
+        let new = root.path().join("dev.naufalzhafran.proxalens");
+        assert!(!migrate_data_dir(&new).unwrap());
+        assert!(!new.exists());
     }
 }

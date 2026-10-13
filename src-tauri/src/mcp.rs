@@ -467,7 +467,7 @@ impl Tools {
 impl ServerHandler for Tools {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
-            "Project Proxy captures HTTP/HTTPS traffic on this Mac. Filters: whitespace-separated terms, ANDed; \
+            "ProxaLens captures HTTP/HTTPS traffic on this Mac. Filters: whitespace-separated terms, ANDed; \
              prefix ! to negate. s:200 / s:4xx (status), m:post (method), ct:json (content type), \
              re:/v[12]/ (regex on host+path), app:chrome (app), any other text = host+path substring.",
         )

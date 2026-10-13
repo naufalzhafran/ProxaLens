@@ -33,16 +33,16 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             &status,
             &system_proxy,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, SHOW, "Show Project Proxy", true, None::<&str>)?,
+            &MenuItem::with_id(app, SHOW, "Show ProxaLens", true, None::<&str>)?,
             &MenuItem::with_id(app, CLEAR, "Clear Flows", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, QUIT, "Quit Project Proxy", true, Some("CmdOrCtrl+Q"))?,
+            &MenuItem::with_id(app, QUIT, "Quit ProxaLens", true, Some("CmdOrCtrl+Q"))?,
         ],
     )?;
 
     let mut builder = TrayIconBuilder::with_id("main")
         .menu(&menu)
-        .tooltip("Project Proxy")
+        .tooltip("ProxaLens")
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             SYSTEM_PROXY => {
