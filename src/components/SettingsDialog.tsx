@@ -66,6 +66,7 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
         value={tab}
         onChange={setTab}
         tabs={[
+          { id: "general", label: "General" },
           { id: "ssl", label: "SSL Proxying" },
           { id: "block", label: "Block List" },
           { id: "allow", label: "Allow List" },
@@ -75,6 +76,30 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
       />
       {settings && (
         <div className="pt-3">
+          {tab === "general" && (
+            <div className="flex flex-col gap-3">
+              <Help>How “Proxy On” points this Mac at the proxy.</Help>
+              {(
+                [
+                  ["manual", "HTTP and HTTPS proxy settings", "Works with nearly every app. If the app is killed, your settings are restored by the watchdog."],
+                  ["pac", "Automatic configuration (PAC)", "If the app dies, most apps go direct by themselves. Some apps ignore PAC files, so their traffic may not be captured."],
+                ] as const
+              ).map(([id, title, help]) => (
+                <label key={id} className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    className="mt-1"
+                    checked={settings.systemProxyMode === id}
+                    onChange={() => setSettings({ ...settings, systemProxyMode: id })}
+                  />
+                  <span>
+                    <span className="font-medium">{title}</span>
+                    <span className="block text-neutral-500">{help}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
           {tab === "ssl" && (
             <div className="flex flex-col gap-3">
               <Help>

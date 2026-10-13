@@ -84,11 +84,32 @@ impl ProxySetting {
     }
 }
 
+/// Automatic proxy configuration (a PAC URL) for one service.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutoProxySetting {
+    pub enabled: bool,
+    pub url: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServiceSnapshot {
     pub name: String,
     pub http: ProxySetting,
     pub https: ProxySetting,
+    #[serde(default)]
+    pub pac: AutoProxySetting,
+}
+
+/// How the system is pointed at the proxy.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Mode {
+    /// HTTP and HTTPS proxy settings (the default).
+    #[default]
+    Manual,
+    /// An automatic configuration (PAC) URL served by the proxy. If the app
+    /// dies, the URL stops answering and most clients go direct by themselves.
+    Pac,
 }
 
 /// Written to disk before the system proxy is changed.
@@ -100,6 +121,11 @@ pub struct Marker {
     pub port: u16,
     pub created_at: f64,
     pub services: Vec<ServiceSnapshot>,
+    #[serde(default)]
+    pub mode: Mode,
+    /// The PAC URL we installed (PAC mode).
+    #[serde(default)]
+    pub pac_url: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -175,6 +201,30 @@ fn read_setting(
     ))
 }
 
+pub fn parse_auto_proxy(out: &str) -> AutoProxySetting {
+    let mut s = AutoProxySetting::default();
+    for line in out.lines() {
+        let line = line.trim();
+        if let Some(v) = line.strip_prefix("URL:") {
+            let v = v.trim();
+            s.url = if v == "(null)" {
+                String::new()
+            } else {
+                v.to_string()
+            };
+        } else if let Some(v) = line.strip_prefix("Enabled:") {
+            s.enabled = v.trim() == "Yes";
+        }
+    }
+    s
+}
+
+fn read_auto_proxy(ns: &dyn NetworkSetup, svc: &str) -> Result<AutoProxySetting, SysProxyError> {
+    Ok(parse_auto_proxy(
+        &ns.run(&["-getautoproxyurl".into(), svc.into()])?,
+    ))
+}
+
 pub fn snapshot(ns: &dyn NetworkSetup) -> Result<Vec<ServiceSnapshot>, SysProxyError> {
     list_services(ns)?
         .into_iter()
@@ -182,10 +232,16 @@ pub fn snapshot(ns: &dyn NetworkSetup) -> Result<Vec<ServiceSnapshot>, SysProxyE
             Ok(ServiceSnapshot {
                 http: read_setting(ns, &name, Kind::Http)?,
                 https: read_setting(ns, &name, Kind::Https)?,
+                pac: read_auto_proxy(ns, &name)?,
                 name,
             })
         })
         .collect()
+}
+
+/// The PAC URL the proxy serves for itself.
+pub fn pac_url(host: &str, port: u16) -> String {
+    format!("http://{host}:{port}/proxy.pac")
 }
 
 /// Runs `networksetup` set commands. They print nothing on success (and
@@ -239,13 +295,25 @@ fn remove_marker(path: &Path) -> Result<(), SysProxyError> {
 }
 
 /// Snapshots current settings, writes the marker, then points every enabled
-/// service's HTTP and HTTPS proxy at `host:port`.
+/// service at `host:port`: its HTTP and HTTPS proxy (manual mode) or its
+/// automatic proxy URL (PAC mode).
 pub fn enable(
     ns: &dyn NetworkSetup,
     marker_path: &Path,
     host: &str,
     port: u16,
     created_at: f64,
+) -> Result<Marker, SysProxyError> {
+    enable_mode(ns, marker_path, host, port, created_at, Mode::Manual)
+}
+
+pub fn enable_mode(
+    ns: &dyn NetworkSetup,
+    marker_path: &Path,
+    host: &str,
+    port: u16,
+    created_at: f64,
+    mode: Mode,
 ) -> Result<Marker, SysProxyError> {
     // A marker from an earlier run holds the user's original settings;
     // never overwrite it with a snapshot that already points at us.
@@ -264,18 +332,38 @@ pub fn enable(
         port,
         created_at,
         services,
+        mode,
+        pac_url: if mode == Mode::Pac {
+            pac_url(host, port)
+        } else {
+            String::new()
+        },
     };
     write_marker(marker_path, &marker)?;
 
     let port_s = port.to_string();
-    let cmds = marker
-        .services
-        .iter()
-        .flat_map(|s| {
-            [Kind::Http, Kind::Https]
-                .map(|k| vec![k.set().into(), s.name.clone(), host.into(), port_s.clone()])
-        })
-        .collect();
+    let cmds = match mode {
+        Mode::Manual => marker
+            .services
+            .iter()
+            .flat_map(|s| {
+                [Kind::Http, Kind::Https]
+                    .map(|k| vec![k.set().into(), s.name.clone(), host.into(), port_s.clone()])
+            })
+            .collect(),
+        // -setautoproxyurl also switches automatic configuration on.
+        Mode::Pac => marker
+            .services
+            .iter()
+            .map(|s| {
+                vec![
+                    "-setautoproxyurl".into(),
+                    s.name.clone(),
+                    marker.pac_url.clone(),
+                ]
+            })
+            .collect(),
+    };
     if let Err(e) = apply(ns, cmds) {
         // Couldn't switch (e.g. password prompt cancelled): undo partial changes.
         let _ = restore(ns, marker_path, &marker);
@@ -295,6 +383,35 @@ pub fn restore(
     let mut cmds = Vec::new();
     for svc in &marker.services {
         let mut touched = false;
+        if marker.mode == Mode::Pac {
+            if let Ok(current) = read_auto_proxy(ns, &svc.name)
+                && current.enabled
+                && current.url == marker.pac_url
+            {
+                touched = true;
+                let saved = &svc.pac;
+                if !saved.url.is_empty() {
+                    cmds.push(vec![
+                        "-setautoproxyurl".into(),
+                        svc.name.clone(),
+                        saved.url.clone(),
+                    ]);
+                }
+                if !saved.enabled || saved.url.is_empty() {
+                    cmds.push(vec![
+                        "-setautoproxystate".into(),
+                        svc.name.clone(),
+                        "off".into(),
+                    ]);
+                }
+            }
+            if touched {
+                report.restored.push(svc.name.clone());
+            } else {
+                report.skipped.push(svc.name.clone());
+            }
+            continue;
+        }
         for (kind, saved) in [(Kind::Http, &svc.http), (Kind::Https, &svc.https)] {
             // A service that disappeared (or can't be read) is skipped.
             let Ok(current) = read_setting(ns, &svc.name, kind) else {
@@ -370,6 +487,7 @@ pub(crate) mod tests {
         pub needs_admin: bool,
         pub admin_calls: Mutex<usize>,
         pub log: Mutex<Vec<Vec<String>>>,
+        pub pac: Mutex<BTreeMap<String, AutoProxySetting>>,
     }
 
     impl FakeNs {
@@ -446,6 +564,30 @@ pub(crate) mod tests {
                     let mut s = self.get(svc, kind(verb));
                     s.enabled = *st == "on";
                     self.set(svc, kind(verb), s);
+                    Ok(String::new())
+                }
+                ["-getautoproxyurl", svc] => {
+                    let p = self.pac.lock().get(*svc).cloned().unwrap_or_default();
+                    Ok(format!(
+                        "URL: {}\nEnabled: {}\n",
+                        if p.url.is_empty() { "(null)" } else { &p.url },
+                        if p.enabled { "Yes" } else { "No" }
+                    ))
+                }
+                ["-setautoproxyurl", svc, url] => {
+                    self.pac.lock().insert(
+                        svc.to_string(),
+                        AutoProxySetting {
+                            enabled: true,
+                            url: url.to_string(),
+                        },
+                    );
+                    Ok(String::new())
+                }
+                ["-setautoproxystate", svc, st] => {
+                    let mut pac = self.pac.lock();
+                    let e = pac.entry(svc.to_string()).or_default();
+                    e.enabled = *st == "on";
                     Ok(String::new())
                 }
                 other => panic!("unexpected networksetup call: {other:?}"),
@@ -607,6 +749,72 @@ pub(crate) mod tests {
         assert_eq!(m2.services[0].http, corp);
         restore(&ns, &marker, &m2).unwrap();
         assert_eq!(ns.get("Wi-Fi", "http"), corp);
+    }
+
+    #[test]
+    fn parses_auto_proxy_output() {
+        assert_eq!(
+            parse_auto_proxy("URL: http://wpad/proxy.pac\nEnabled: Yes\n"),
+            AutoProxySetting {
+                enabled: true,
+                url: "http://wpad/proxy.pac".into()
+            }
+        );
+        assert_eq!(
+            parse_auto_proxy("URL: (null)\nEnabled: No\n"),
+            AutoProxySetting::default()
+        );
+    }
+
+    #[test]
+    fn pac_mode_round_trips_and_leaves_manual_proxies_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("m.json");
+        let ns = FakeNs::new(&["Wi-Fi", "Ethernet"]);
+        let corp_pac = AutoProxySetting {
+            enabled: true,
+            url: "http://wpad.corp/proxy.pac".into(),
+        };
+        ns.pac.lock().insert("Ethernet".into(), corp_pac.clone());
+
+        let m = enable_mode(&ns, &marker, "127.0.0.1", 9090, 1.0, Mode::Pac).unwrap();
+        assert_eq!(m.pac_url, "http://127.0.0.1:9090/proxy.pac");
+        assert_eq!(read_marker(&marker).unwrap().unwrap().mode, Mode::Pac);
+        for svc in ["Wi-Fi", "Ethernet"] {
+            let p = ns.pac.lock().get(svc).cloned().unwrap();
+            assert!(p.enabled && p.url == m.pac_url);
+            assert!(!ns.get(svc, "http").enabled, "manual proxies untouched");
+        }
+
+        let report = restore(&ns, &marker, &m).unwrap();
+        assert_eq!(report.restored.len(), 2);
+        assert_eq!(ns.pac.lock().get("Ethernet").cloned().unwrap(), corp_pac);
+        assert!(!ns.pac.lock().get("Wi-Fi").unwrap().enabled);
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn pac_restore_skips_services_changed_by_hand() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("m.json");
+        let ns = FakeNs::new(&["Wi-Fi"]);
+        let m = enable_mode(&ns, &marker, "127.0.0.1", 9090, 1.0, Mode::Pac).unwrap();
+        let mine = AutoProxySetting {
+            enabled: true,
+            url: "http://other/x.pac".into(),
+        };
+        ns.pac.lock().insert("Wi-Fi".into(), mine.clone());
+        let report = restore(&ns, &marker, &m).unwrap();
+        assert_eq!(report.skipped, vec!["Wi-Fi".to_string()]);
+        assert_eq!(ns.pac.lock().get("Wi-Fi").cloned().unwrap(), mine);
+    }
+
+    #[test]
+    fn old_markers_without_mode_still_restore() {
+        let json = r#"{"version":1,"pid":1,"host":"127.0.0.1","port":9090,"created_at":0,
+            "services":[{"name":"Wi-Fi","http":{"enabled":false,"server":"","port":0},"https":{"enabled":false,"server":"","port":0}}]}"#;
+        let m: Marker = serde_json::from_str(json).unwrap();
+        assert_eq!(m.mode, Mode::Manual);
     }
 
     #[test]

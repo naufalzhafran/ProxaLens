@@ -95,6 +95,15 @@ export interface Settings {
     hosts: string[];
   };
   protobuf: { hosts: string; paths: string[] }[];
+  allowLan: boolean;
+  systemProxyMode: "manual" | "pac";
+}
+
+export interface DeviceInfo {
+  allowLan: boolean;
+  port: number;
+  /** [interface, setup URL] */
+  setupUrls: [string, string][];
 }
 
 export interface OutgoingRequest {
@@ -215,6 +224,8 @@ export const api = {
     return invoke<void>("subscribe_flows", { onEvent: channel });
   },
   getSettings: () => invoke<Settings>("get_settings"),
+  deviceInfo: () => invoke<DeviceInfo>("device_info"),
+  installSimulatorCert: () => invoke<string>("install_simulator_cert"),
   setSettings: (settings: Settings) => invoke<Settings>("set_settings", { settings }),
   exportHar: (path: string, ids?: number[]) => invoke<number>("export_har", { path, ids }),
   saveSession: (path: string) => invoke<number>("save_session", { path }),

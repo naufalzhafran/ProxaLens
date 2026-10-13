@@ -62,11 +62,22 @@ pub struct Recorder {
     pub breakpoints: Arc<Breakpoints>,
     pub scripts: Arc<Scripts>,
     pub processes: Arc<super::procinfo::Resolver>,
+    pub local: LocalPages,
     /// Upgraded WebSocket connections, keyed by the client's socket address.
     websockets: Mutex<HashMap<SocketAddr, FlowId>>,
 }
 
+/// What the proxy serves about itself: a setup page, its CA certificate
+/// and a PAC file (see `local_page`).
+#[derive(Clone, Default)]
+pub struct LocalPages {
+    pub ca_pem: String,
+    pub ca_der: Vec<u8>,
+    pub port: u16,
+}
+
 impl Recorder {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: Arc<Store>,
         body_cap: usize,
@@ -75,6 +86,7 @@ impl Recorder {
         breakpoints: Arc<Breakpoints>,
         scripts: Arc<Scripts>,
         processes: Arc<super::procinfo::Resolver>,
+        local: LocalPages,
     ) -> Arc<Self> {
         Arc::new(Self {
             store,
@@ -84,6 +96,7 @@ impl Recorder {
             breakpoints,
             scripts,
             processes,
+            local,
             websockets: Mutex::new(HashMap::new()),
         })
     }
@@ -347,6 +360,98 @@ async fn map_local_response(rule: &MapLocal) -> Result<Response<Body>, String> {
     Ok(build_response(rule.status, &headers, body))
 }
 
+/// Hosts that always mean "the proxy itself" when requested through it.
+const LOCAL_HOSTS: &[&str] = &["proxy.local", "project.proxy"];
+
+/// Answers requests addressed to the proxy itself: sent straight to it
+/// (`http://<mac-ip>:9090/`) or through it to `http://proxy.local/`.
+pub fn local_page(local: &LocalPages, req: &Request<Body>) -> Option<Response<Body>> {
+    let uri = req.uri();
+    let direct = uri.authority().is_none();
+    if !direct && !uri.host().is_some_and(|h| LOCAL_HOSTS.contains(&h)) {
+        return None;
+    }
+    let host_header = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .filter(|_| direct)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("127.0.0.1:{}", local.port));
+    let respond = |status: StatusCode, ct: &str, body: Vec<u8>, extra: Option<(&str, &str)>| {
+        let mut b = Response::builder()
+            .status(status)
+            .header(header::CONTENT_TYPE, ct)
+            .header(header::CACHE_CONTROL, "no-store");
+        if let Some((k, v)) = extra {
+            b = b.header(k, v);
+        }
+        b.body(Body::from(body)).expect("static response")
+    };
+    Some(match uri.path() {
+        "/" | "/setup" => respond(
+            StatusCode::OK,
+            "text/html; charset=utf-8",
+            setup_html(&host_header).into_bytes(),
+            None,
+        ),
+        "/cert" | "/cert.pem" => respond(
+            StatusCode::OK,
+            "application/x-x509-ca-cert",
+            local.ca_pem.clone().into_bytes(),
+            Some((
+                "content-disposition",
+                "attachment; filename=\"ProjectProxyCA.pem\"",
+            )),
+        ),
+        "/cert.cer" => respond(
+            StatusCode::OK,
+            "application/x-x509-ca-cert",
+            local.ca_der.clone(),
+            Some((
+                "content-disposition",
+                "attachment; filename=\"ProjectProxyCA.cer\"",
+            )),
+        ),
+        "/proxy.pac" => respond(
+            StatusCode::OK,
+            "application/x-ns-proxy-autoconfig",
+            pac_file(&host_header).into_bytes(),
+            None,
+        ),
+        _ => respond(
+            StatusCode::NOT_FOUND,
+            "text/plain; charset=utf-8",
+            b"Not found".to_vec(),
+            None,
+        ),
+    })
+}
+
+/// A PAC file sending everything but local names through `proxy`.
+pub fn pac_file(proxy: &str) -> String {
+    format!(
+        "function FindProxyForURL(url, host) {{\n  if (isPlainHostName(host) || host === \"localhost\" || shExpMatch(host, \"127.*\") || shExpMatch(host, \"*.local\")) return \"DIRECT\";\n  return \"PROXY {proxy}; DIRECT\";\n}}\n"
+    )
+}
+
+fn setup_html(proxy: &str) -> String {
+    format!(
+        r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Project Proxy setup</title>
+<style>body{{font:16px -apple-system,system-ui,sans-serif;max-width:34rem;margin:2rem auto;padding:0 1rem;line-height:1.5}}a.b{{display:block;margin:.5rem 0;padding:.75rem 1rem;border-radius:.5rem;background:#0284c7;color:#fff;text-decoration:none;text-align:center}}code{{background:#eee;padding:.1rem .3rem;border-radius:.25rem}}</style></head>
+<body><h1>Project Proxy</h1>
+<p>Proxy address: <code>{proxy}</code></p>
+<h2>1. Install the certificate</h2>
+<a class="b" href="/cert.pem">Download certificate</a>
+<p><b>iPhone / iPad:</b> after downloading, open Settings → Profile Downloaded → Install. Then turn it on under Settings → General → About → Certificate Trust Settings.</p>
+<p><b>Android:</b> Settings → Security → Encryption &amp; credentials → Install a certificate → CA certificate. Apps only trust it if they opt in to user certificates.</p>
+<h2>2. Use the proxy</h2>
+<p>Wi-Fi settings → your network → Configure Proxy → Manual: server and port from the address above. Or Automatic, with URL <code>http://{proxy}/proxy.pac</code>.</p>
+</body></html>"#
+    )
+}
+
 fn split_url(url: &str) -> (String, String, String) {
     match url.parse::<Uri>() {
         Ok(u) => (
@@ -374,6 +479,10 @@ impl HttpHandler for FlowHandler {
                 return blocked_response().into();
             }
             return req.into();
+        }
+
+        if let Some(res) = local_page(&self.rec.local, &req) {
+            return res.into();
         }
 
         let uri = req.uri();

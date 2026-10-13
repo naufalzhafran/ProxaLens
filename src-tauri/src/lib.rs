@@ -84,6 +84,8 @@ pub fn run() {
             commands::clear_flows,
             commands::subscribe_flows,
             commands::get_settings,
+            commands::device_info,
+            commands::install_simulator_cert,
             commands::set_settings,
             commands::export_har,
             commands::save_session,

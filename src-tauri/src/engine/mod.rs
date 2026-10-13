@@ -211,7 +211,13 @@ impl Engine {
             return Ok(r.addr);
         }
 
-        let bind = format!("{}:{port}", self.cfg.listen_host);
+        // Devices on the network need the proxy on every interface.
+        let host = if self.settings.read().allow_lan {
+            "0.0.0.0"
+        } else {
+            self.cfg.listen_host.as_str()
+        };
+        let bind = format!("{host}:{port}");
         let listener = TcpListener::bind(&bind)
             .await
             .map_err(|source| EngineError::Bind {
@@ -239,6 +245,11 @@ impl Engine {
             self.breakpoints.clone(),
             self.scripts.clone(),
             self.processes.clone(),
+            proxy::LocalPages {
+                ca_pem: self.ca.cert_pem.clone(),
+                ca_der: self.ca.cert_der.clone(),
+                port: addr.port(),
+            },
         ));
         let (tx, rx) = oneshot::channel::<()>();
         let proxy = Proxy::builder()
@@ -280,6 +291,39 @@ impl Engine {
             .filter(|r| !r.task.is_finished())
             .map(|r| r.addr)
     }
+}
+
+/// IPv4 addresses of this Mac on its networks (for device setup).
+pub fn lan_addresses() -> Vec<(String, std::net::Ipv4Addr)> {
+    let mut out = Vec::new();
+    let mut addrs: *mut libc::ifaddrs = std::ptr::null_mut();
+    // SAFETY: getifaddrs fills a linked list we walk read-only and free.
+    unsafe {
+        if libc::getifaddrs(&mut addrs) != 0 {
+            return out;
+        }
+        let mut cur = addrs;
+        while !cur.is_null() {
+            let ifa = &*cur;
+            if !ifa.ifa_addr.is_null()
+                && i32::from((*ifa.ifa_addr).sa_family) == libc::AF_INET
+                && ifa.ifa_flags & (libc::IFF_UP as u32) != 0
+                && ifa.ifa_flags & (libc::IFF_LOOPBACK as u32) == 0
+            {
+                let sin = &*(ifa.ifa_addr as *const libc::sockaddr_in);
+                let ip = std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr));
+                let name = std::ffi::CStr::from_ptr(ifa.ifa_name)
+                    .to_string_lossy()
+                    .into_owned();
+                if !ip.is_link_local() {
+                    out.push((name, ip));
+                }
+            }
+            cur = ifa.ifa_next;
+        }
+        libc::freeifaddrs(addrs);
+    }
+    out
 }
 
 /// Upstream trust: Mozilla roots + the macOS keychain roots (so corporate
@@ -330,13 +374,14 @@ impl SysProxyController {
         sysproxy::recover_stale(self.ns.as_ref(), &self.marker_path, sysproxy::pid_alive)
     }
 
-    pub fn enable(&self, host: &str, port: u16) -> Result<(), SysProxyError> {
-        sysproxy::enable(
+    pub fn enable(&self, host: &str, port: u16, mode: sysproxy::Mode) -> Result<(), SysProxyError> {
+        sysproxy::enable_mode(
             self.ns.as_ref(),
             &self.marker_path,
             host,
             port,
             proxy::now_ms(),
+            mode,
         )?;
         let mut guard = self.guard.lock();
         if guard.is_none() {

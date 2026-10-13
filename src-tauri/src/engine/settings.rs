@@ -19,6 +19,12 @@ pub struct Settings {
     pub throttle: Throttle,
     /// `.proto` files for decoding protobuf / gRPC bodies by name.
     pub protobuf: Vec<super::proto::ProtoSource>,
+    /// Accept connections from other devices on the network (phones,
+    /// tablets). Off by default: anyone who can reach the Mac could use it.
+    pub allow_lan: bool,
+    /// Point the system at the proxy with HTTP/HTTPS proxy settings or an
+    /// automatic configuration (PAC) URL.
+    pub system_proxy_mode: super::sysproxy::Mode,
 }
 
 /// Which HTTPS hosts are decrypted. Hosts that aren't are tunnelled as-is

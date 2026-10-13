@@ -930,3 +930,62 @@ async fn captures_websocket_messages_both_ways() {
         ]
     );
 }
+
+#[tokio::test]
+async fn serves_setup_page_certificate_and_pac() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let h = harness(vec![], None).await;
+    let addr = h.engine.addr().await.unwrap();
+
+    // Straight to the proxy, as a phone on the network would.
+    let direct = |path: &'static str| async move {
+        let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+        tcp.write_all(
+            format!(
+                "GET {path} HTTP/1.1\r\nHost: 192.168.1.5:{}\r\nConnection: close\r\n\r\n",
+                addr.port()
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+        let mut out = String::new();
+        tcp.read_to_string(&mut out).await.unwrap();
+        out
+    };
+    let page = direct("/").await;
+    assert!(page.starts_with("HTTP/1.1 200"), "{page}");
+    assert!(page.contains("192.168.1.5:"));
+    let pac = direct("/proxy.pac").await;
+    assert!(
+        pac.contains(&format!("PROXY 192.168.1.5:{}; DIRECT", addr.port())),
+        "{pac}"
+    );
+    assert!(direct("/nope").await.starts_with("HTTP/1.1 404"));
+
+    // Through the proxy, by name.
+    let cert = h
+        .client
+        .get("http://proxy.local/cert.pem")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cert.headers()["content-type"], "application/x-x509-ca-cert");
+    assert_eq!(cert.text().await.unwrap(), h.engine.ca.cert_pem);
+    assert!(
+        h.engine.store.is_empty(),
+        "the proxy's own pages aren't recorded"
+    );
+}
+
+#[tokio::test]
+async fn allow_lan_listens_on_every_interface() {
+    let h = harness(vec![], None).await;
+    assert!(h.engine.addr().await.unwrap().ip().is_loopback());
+    let mut settings = h.engine.settings();
+    settings.allow_lan = true;
+    h.engine.set_settings(settings).unwrap();
+    h.engine.stop().await;
+    let addr = h.engine.start(0).await.unwrap();
+    assert!(addr.ip().is_unspecified(), "{addr}");
+}

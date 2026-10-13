@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { api, errorMessage, type RestoreReport, type Status } from "./api";
 import { BreakpointDialog, useBreakpoints } from "./components/BreakpointDialog";
 import { Composer } from "./components/Composer";
+import { DevicesDialog } from "./components/DevicesDialog";
 import { DiffView } from "./components/DiffView";
 import { FilterBar } from "./components/FilterBar";
 import { FlowTable } from "./components/FlowTable";
@@ -32,6 +33,7 @@ export default function App() {
   const settingsTab = useUi((s) => s.settingsTab);
   const rulesView = useUi((s) => s.rules);
   const scriptsOpen = useUi((s) => s.scriptsOpen);
+  const devicesOpen = useUi((s) => s.devicesOpen);
   const hits = useBreakpoints();
   const sidebar = useResizable(200, 140, 400, "x", "sidebarWidth");
   const table = useResizable(640, 320, 2000, "x", "tableWidth");
@@ -85,7 +87,7 @@ export default function App() {
       if (!e.metaKey || e.shiftKey || e.altKey) return;
       const ui = useUi.getState();
       // Leave shortcuts alone while a dialog is open (except ⌘F/⌘K).
-      const modal = ui.composer || ui.diff || ui.settingsTab || ui.rules || ui.scriptsOpen;
+      const modal = ui.composer || ui.diff || ui.settingsTab || ui.rules || ui.scriptsOpen || ui.devicesOpen;
       const selected = useFlows.getState().selectedId;
       const actions: Record<string, () => void> = {
         f: () => {
@@ -97,7 +99,7 @@ export default function App() {
         s: () => !modal && files.saveSession(),
         n: () => !modal && ui.openComposer(emptyDraft),
         r: () => !modal && selected !== null && repeat(selected),
-        ",": () => !modal && ui.openSettings("ssl"),
+        ",": () => !modal && ui.openSettings("general"),
         l: () => !modal && ui.openRules({ tab: "mapLocal" }),
         j: () => !modal && ui.openScripts(true),
       };
@@ -155,6 +157,7 @@ export default function App() {
       {diff && <DiffView ids={diff} />}
       {settingsTab && <SettingsDialog initialTab={settingsTab} />}
       {rulesView && <RulesDialog view={rulesView} />}
+      {devicesOpen && <DevicesDialog />}
       {scriptsOpen && (
         <Suspense fallback={null}>
           <ScriptsWindow />

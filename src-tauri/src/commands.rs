@@ -163,7 +163,8 @@ pub async fn apply_system_proxy(state: &AppState, enabled: bool) -> CmdResult<()
         let Some(addr) = state.engine.addr().await else {
             return Err("Start the proxy before routing system traffic through it.".into());
         };
-        tauri::async_runtime::spawn_blocking(move || sp.enable(LOCALHOST, addr.port()))
+        let mode = state.engine.settings().system_proxy_mode;
+        tauri::async_runtime::spawn_blocking(move || sp.enable(LOCALHOST, addr.port(), mode))
             .await
             .map_err(|e| e.to_string())?
             .map_err(|e| e.to_string())?;
@@ -376,13 +377,82 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
     state.engine.settings()
 }
 
+/// Saves settings. Listening on the network takes a proxy restart, and a
+/// new system proxy mode is applied straight away if it is on.
 #[tauri::command]
-pub fn set_settings(state: State<'_, AppState>, settings: Settings) -> CmdResult<Settings> {
+pub async fn set_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    settings: Settings,
+) -> CmdResult<Settings> {
+    let before = state.engine.settings();
     state
         .engine
-        .set_settings(settings)
+        .set_settings(settings.clone())
         .map_err(|e| e.to_string())?;
+    if before.allow_lan != settings.allow_lan
+        && let Some(addr) = state.engine.addr().await
+    {
+        state.engine.stop().await;
+        start(&state, addr.port()).await?;
+    }
+    if before.system_proxy_mode != settings.system_proxy_mode && state.sysproxy.is_enabled() {
+        apply_system_proxy(&state, false).await?;
+        apply_system_proxy(&state, true).await?;
+    }
+    notify_status(&app).await;
     Ok(state.engine.settings())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceInfo {
+    allow_lan: bool,
+    port: u16,
+    /// `http://<ip>:<port>/` for each network interface.
+    setup_urls: Vec<(String, String)>,
+}
+
+#[tauri::command]
+pub async fn device_info(state: State<'_, AppState>) -> CmdResult<DeviceInfo> {
+    let port = state
+        .engine
+        .addr()
+        .await
+        .map_or(*state.port.lock(), |a| a.port());
+    Ok(DeviceInfo {
+        allow_lan: state.engine.settings().allow_lan,
+        port,
+        setup_urls: crate::engine::lan_addresses()
+            .into_iter()
+            .map(|(iface, ip)| (iface, format!("http://{ip}:{port}/")))
+            .collect(),
+    })
+}
+
+/// Trusts the CA in every booted iOS Simulator.
+#[tauri::command]
+pub async fn install_simulator_cert(state: State<'_, AppState>) -> CmdResult<String> {
+    let pem = state.engine.ca.cert_pem_path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = std::process::Command::new("/usr/bin/xcrun")
+            .args(["simctl", "keychain", "booted", "add-root-cert"])
+            .arg(&pem)
+            .output()
+            .map_err(|e| format!("Xcode command line tools are needed: {e}"))?;
+        if out.status.success() {
+            Ok("Installed in the booted Simulator(s).".to_string())
+        } else {
+            let err = String::from_utf8_lossy(&out.stderr);
+            Err(if err.contains("No devices are booted") {
+                "Start a Simulator first.".to_string()
+            } else {
+                err.trim().to_string()
+            })
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Writes the given flows (all when `ids` is omitted) to a HAR file.

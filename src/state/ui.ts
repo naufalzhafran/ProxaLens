@@ -9,7 +9,7 @@ export interface RulesView {
   add?: { id: string } & Record<string, unknown>;
 }
 
-export type SettingsTab = "ssl" | "block" | "allow" | "throttle" | "protobuf";
+export type SettingsTab = "general" | "ssl" | "block" | "allow" | "throttle" | "protobuf";
 
 export interface Draft {
   method: string;
@@ -32,6 +32,8 @@ interface UiState {
   rules: RulesView | null;
   scriptsOpen: boolean;
   openScripts: (open: boolean) => void;
+  devicesOpen: boolean;
+  openDevices: (open: boolean) => void;
   openRules: (view: RulesView | null) => void;
   openComposer: (d: Draft) => void;
   openDiff: (a: number, b: number) => void;
@@ -48,12 +50,14 @@ export const useUi = create<UiState>((set) => ({
   rules: null,
   scriptsOpen: false,
   openScripts: (scriptsOpen) => set({ scriptsOpen }),
+  devicesOpen: false,
+  openDevices: (devicesOpen) => set({ devicesOpen }),
   openRules: (rules) => set({ rules }),
   openComposer: (composer) => set({ composer }),
   openDiff: (a, b) => set({ diff: [a, b], compareMark: null }),
   openSettings: (settingsTab) => set({ settingsTab }),
   markForCompare: (compareMark) => set({ compareMark }),
-  close: () => set({ composer: null, diff: null, settingsTab: null, rules: null, scriptsOpen: false }),
+  close: () => set({ composer: null, diff: null, settingsTab: null, rules: null, scriptsOpen: false, devicesOpen: false }),
 }));
 
 /** The engine's settings, cached for the toolbar. */

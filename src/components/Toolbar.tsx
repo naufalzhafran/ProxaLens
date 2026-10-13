@@ -17,7 +17,7 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
   const [port, setPort] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null);
   const settings = useSettings((s) => s.settings);
-  const { openComposer, openSettings, openRules, openScripts } = useUi.getState();
+  const { openComposer, openSettings, openRules, openScripts, openDevices } = useUi.getState();
 
   useEffect(() => {
     useSettings.getState().refresh().catch((e) => onError(errorMessage(e)));
@@ -151,7 +151,10 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
       </button>
 
       <div className="ml-auto flex items-center gap-2">
-        <button className={button} title="SSL Proxying, Block and Allow lists, Throttle (⌘,)" onClick={() => openSettings("ssl")}>
+        <button className={button} title="Phones, tablets and Simulators" onClick={() => openDevices(true)}>
+          Devices…
+        </button>
+        <button className={button} title="SSL Proxying, Block and Allow lists, Throttle (⌘,)" onClick={() => openSettings("general")}>
           Settings…
         </button>
         {status && (
