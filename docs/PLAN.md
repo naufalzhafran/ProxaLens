@@ -6,8 +6,23 @@ You want a free, GUI alternative to Proxyman/Charles. `kostyay/httpmon` (MIT, Go
 ## Status / handoff
 Update this checklist as work lands so any agent or device can pick up where the last left off.
 - [x] Assessment + plan (this file)
-- [ ] Phase 0: Scaffold (needs Rust via `rustup`, Node 20+)
-- [ ] Phase 1: Capture core + system proxy crash safety
+- [x] Phase 0: Scaffold. Tauri v2 + React-TS + Vite 8, Tailwind v4, zustand, TanStack Table/Virtual, vitest.
+  - Deferred to Phase 2, where they're first used: shadcn/ui and Monaco.
+- [x] Phase 1: Capture core + system proxy crash safety (layers 1–4).
+  - Engine: `src-tauri/src/engine/{store,ca,proxy,sysproxy,guard}.rs`.
+  - IPC: `commands.rs`, with flow batches every 100 ms over a Tauri `Channel`.
+  - Basic UI: toolbar, virtualized flow list, detail panel, banners.
+  - Watchdog: the app binary re-runs itself as `--guard <pid> <marker>`, so there's no separate sidecar to bundle.
+  - Tests: 20 Rust unit, 6 Rust e2e (HTTP, HTTPS MITM, request body, truncation, upstream failure, stop), 5 vitest.
+  - Not yet done:
+    - DNS/connect/TLS timings: hudsucker doesn't expose them, so only TTFB and total time are recorded.
+    - No e2e test for WebSocket capture.
+    - The proxy listens on 127.0.0.1 only (LAN/device access is Phase 6).
+    - Manual checks still pending on a real Mac (they change real settings, so not automated):
+      - "Install certificate…" trusts the CA.
+      - The system proxy toggle switches every service on and off.
+      - `kill -9` of the running app restores the proxy through the watchdog.
+      - A relaunch restores and shows the notice.
 - [ ] Phase 2: Core UI
 - [ ] Phase 3: Debug tools, MVP release
 - [ ] Phase 4: Rules & breakpoints

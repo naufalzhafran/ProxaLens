@@ -1,0 +1,26 @@
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function formatDuration(ms: number | null): string {
+  if (ms === null) return "";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
+}
+
+export function formatTime(epochMs: number): string {
+  const d = new Date(epochMs);
+  const pad = (n: number, w = 2) => n.toString().padStart(w, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+}
+
+/** Tailwind text color for an HTTP status code. */
+export function statusColor(status: number | null): string {
+  if (status === null) return "text-neutral-400";
+  if (status >= 500) return "text-red-500";
+  if (status >= 400) return "text-orange-500";
+  if (status >= 300) return "text-sky-500";
+  return "text-emerald-600 dark:text-emerald-400";
+}
