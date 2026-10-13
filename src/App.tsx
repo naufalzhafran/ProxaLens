@@ -15,9 +15,18 @@ import { Toolbar } from "./components/Toolbar";
 import { useResizable } from "./components/ui";
 import { clearFlows, files, repeat } from "./lib/actions";
 import { useToast } from "./lib/clipboard";
-import { fitSidebar, fitTable, INSPECTOR_MIN, SIDEBAR_MIN, TABLE_MIN } from "./lib/layout";
+import {
+  fitSidebar,
+  fitTable,
+  fitTableHeight,
+  INSPECTOR_MIN,
+  INSPECTOR_MIN_HEIGHT,
+  SIDEBAR_MIN,
+  TABLE_MIN,
+  TABLE_MIN_HEIGHT,
+} from "./lib/layout";
 import { MAX_FLOWS, useFlows } from "./state/flows";
-import { emptyDraft, useUi } from "./state/ui";
+import { emptyDraft, useLayout, useUi } from "./state/ui";
 
 const ScriptsWindow = lazy(() => import("./scripts/ScriptsWindow"));
 
@@ -36,9 +45,18 @@ export default function App() {
   const scriptsOpen = useUi((s) => s.scriptsOpen);
   const devicesOpen = useUi((s) => s.devicesOpen);
   const hits = useBreakpoints();
-  const [panes, panesWidth] = useWidth();
-  const sidebar = useResizable(200, SIDEBAR_MIN, 400, "x", "sidebarWidth", (w) => fitSidebar(panesWidth, w));
-  const table = useResizable(760, TABLE_MIN, 2000, "x", "tableWidth", (w) => fitTable(panesWidth, sidebar.size, w));
+  const sidebarHidden = useLayout((s) => s.sidebarHidden);
+  const bottom = useLayout((s) => s.inspector === "bottom");
+  const [panes, panesSize] = useSize();
+  const sidebar = useResizable(200, SIDEBAR_MIN, 400, "x", "sidebarWidth", (w) =>
+    fitSidebar(panesSize.width, w, !bottom),
+  );
+  const table = useResizable(760, TABLE_MIN, 2000, "x", "tableWidth", (w) =>
+    fitTable(panesSize.width, sidebarHidden ? 0 : sidebar.size, w),
+  );
+  const tableHeight = useResizable(320, TABLE_MIN_HEIGHT, 2000, "y", "tableHeight", (h) =>
+    fitTableHeight(panesSize.height, h),
+  );
 
   const reload = useCallback(async () => {
     const { flows } = await api.listFlows(0, MAX_FLOWS);
@@ -108,6 +126,7 @@ export default function App() {
         ",": () => ui.openSettings("general"),
         l: () => ui.openRules({ tab: "mapLocal" }),
         j: () => ui.openScripts(true),
+        b: () => useLayout.getState().toggleSidebar(),
       };
       const action = actions[e.key];
       if (action) {
@@ -157,18 +176,37 @@ export default function App() {
         </Banner>
       )}
       <div ref={panes} className="flex min-h-0 flex-1">
-        <div style={{ width: sidebar.size }} className="flex shrink-0 flex-col bg-surface">
-          <Sidebar />
-        </div>
-        {sidebar.handle}
-        <div style={{ width: table.size }} className="flex min-w-0 shrink-0 flex-col bg-panel">
-          <FilterBar ref={filterRef} />
-          <FlowTable />
-        </div>
-        {table.handle}
-        <div style={{ minWidth: INSPECTOR_MIN }} className="flex min-w-0 flex-1 flex-col">
-          <Inspector />
-        </div>
+        {!sidebarHidden && (
+          <>
+            <div style={{ width: sidebar.size }} className="flex shrink-0 flex-col bg-surface">
+              <Sidebar />
+            </div>
+            {sidebar.handle}
+          </>
+        )}
+        {bottom ? (
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div style={{ height: tableHeight.size }} className="flex min-h-0 shrink-0 flex-col bg-panel">
+              <FilterBar ref={filterRef} />
+              <FlowTable />
+            </div>
+            {tableHeight.handle}
+            <div style={{ minHeight: INSPECTOR_MIN_HEIGHT }} className="flex min-h-0 flex-1 flex-col">
+              <Inspector sideBySide />
+            </div>
+          </div>
+        ) : (
+          <>
+            <div style={{ width: table.size }} className="flex min-w-0 shrink-0 flex-col bg-panel">
+              <FilterBar ref={filterRef} />
+              <FlowTable />
+            </div>
+            {table.handle}
+            <div style={{ minWidth: INSPECTOR_MIN }} className="flex min-w-0 flex-1 flex-col">
+              <Inspector />
+            </div>
+          </>
+        )}
       </div>
       {setupOpen && status && (
         <Onboarding status={status} setStatus={setStatus} onClose={() => setSetupOpen(false)} />
@@ -196,16 +234,18 @@ export default function App() {
   );
 }
 
-/** A ref to attach, and the element's current width (0 until measured). */
-function useWidth(): [(el: HTMLDivElement | null) => void, number] {
-  const [width, setWidth] = useState(0);
+/** A ref to attach, and the element's current size (0 until measured). */
+function useSize(): [(el: HTMLDivElement | null) => void, { width: number; height: number }] {
+  const [size, setSize] = useState({ width: 0, height: 0 });
   const ref = useCallback((el: HTMLDivElement | null) => {
     if (!el) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    const observer = new ResizeObserver(([entry]) =>
+      setSize({ width: entry.contentRect.width, height: entry.contentRect.height }),
+    );
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  return [ref, width];
+  return [ref, size];
 }
 
 function Banner({

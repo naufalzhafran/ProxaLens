@@ -4,7 +4,8 @@
  * ProxaLens design tokens (light first, dark below). Components use them as
  * Tailwind utilities: bg-surface, bg-panel, border-line, text-ink, text-muted,
  * bg-accent / text-on-accent, bg-select, and text-st-ok / -redirect / -client /
- * -server for HTTP status.
+ * -server for HTTP status. Code views use text-syn-key / -string / -number /
+ * -literal, a separate palette so keys and strings never share a hue.
  */
 @theme {
   --color-surface: #f4f4f1;
@@ -19,6 +20,10 @@
   --color-st-redirect: #1d559f;
   --color-st-client: #8a5200;
   --color-st-server: #b3261e;
+  --color-syn-key: #1f5fbf;
+  --color-syn-string: #1d7a35;
+  --color-syn-number: #b35300;
+  --color-syn-literal: #a3238a;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
@@ -40,6 +45,10 @@
     --color-st-redirect: #8fbaff;
     --color-st-client: #ffb454;
     --color-st-server: #ff938a;
+    --color-syn-key: #7fb4ff;
+    --color-syn-string: #7ed99a;
+    --color-syn-number: #ffad5c;
+    --color-syn-literal: #e58ad3;
   }
 }
 

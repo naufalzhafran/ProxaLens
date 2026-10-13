@@ -24,13 +24,15 @@ import { useFlows } from "../state/flows";
 import { JsonTree } from "./JsonTree";
 import { button, Chip, ContextMenu, input, Tabs, useResizable } from "./ui";
 
-export function Inspector() {
+/** `sideBySide` puts request and response next to each other, for a wide, short pane. */
+export function Inspector({ sideBySide = false }: { sideBySide?: boolean }) {
   const selectedId = useFlows((s) => s.selectedId);
   // Refetch when the selected flow's summary changes (e.g. response arrives).
   const meta = useFlows((s) => (s.selectedId === null ? null : s.byId[s.selectedId]));
   const [detail, setDetail] = useState<FlowDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const split = useResizable(320, 120, 1200, "y", "inspectorSplit");
+  const splitX = useResizable(480, 200, 2000, "x", "inspectorSplitX");
 
   useEffect(() => {
     if (selectedId === null) {
@@ -95,13 +97,27 @@ export function Inspector() {
           </button>
         </div>
       </div>
-      <div style={{ height: split.size }} className="flex min-h-0 shrink-0 flex-col">
-        <RequestPane detail={detail} />
-      </div>
-      {split.handle}
-      <div className="flex min-h-0 flex-1 flex-col">
-        <ResponsePane detail={detail} />
-      </div>
+      {sideBySide ? (
+        <div className="flex min-h-0 flex-1">
+          <div style={{ width: splitX.size }} className="flex min-w-0 shrink-0 flex-col">
+            <RequestPane detail={detail} />
+          </div>
+          {splitX.handle}
+          <div style={{ minWidth: 200 }} className="flex min-w-0 flex-1 flex-col">
+            <ResponsePane detail={detail} />
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{ height: split.size }} className="flex min-h-0 shrink-0 flex-col">
+            <RequestPane detail={detail} />
+          </div>
+          {split.handle}
+          <div className="flex min-h-0 flex-1 flex-col">
+            <ResponsePane detail={detail} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -457,12 +473,12 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
 }
 
 const TOKEN_CLASS: Record<string, string> = {
-  key: "text-accent",
-  string: "text-st-ok",
-  number: "text-st-redirect",
-  literal: "text-st-client",
-  tag: "text-st-redirect",
-  attr: "text-accent",
+  key: "text-syn-key",
+  string: "text-syn-string",
+  number: "text-syn-number",
+  literal: "text-syn-literal",
+  tag: "text-syn-key",
+  attr: "text-syn-number",
   comment: "italic text-muted",
 };
 

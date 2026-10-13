@@ -4,6 +4,9 @@ import {
   Code,
   FolderOpen,
   Gauge,
+  PanelBottom,
+  PanelLeft,
+  PanelRight,
   Pause,
   Play,
   Send,
@@ -16,7 +19,7 @@ import {
 import { api, errorMessage, type Status } from "../api";
 import { clearFlows, files, visibleIds } from "../lib/actions";
 import { activeRules } from "../lib/rules";
-import { emptyDraft, useSettings, useTools, useUi } from "../state/ui";
+import { emptyDraft, useLayout, useSettings, useTools, useUi } from "../state/ui";
 import { THROTTLE_PRESETS } from "./SettingsDialog";
 import { button, ContextMenu, IconButton, Popover, primaryButton, useAnchor, type MenuEntry } from "./ui";
 
@@ -37,6 +40,7 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
   const rules = useTools((s) => s.rules);
   const scripts = useTools((s) => s.scripts);
   const { openComposer, openSettings, openRules, openScripts, openDevices } = useUi.getState();
+  const { sidebarHidden, inspector, toggleSidebar, toggleInspector } = useLayout();
 
   useEffect(() => {
     useSettings.getState().refresh().catch((e) => onError(errorMessage(e)));
@@ -211,6 +215,20 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
       </button>
 
       <div className="ml-auto flex items-center gap-1.5">
+        <IconButton
+          label={sidebarHidden ? "Show sidebar (⌘B)" : "Hide sidebar (⌘B)"}
+          className={sidebarHidden ? "" : "text-ink"}
+          onClick={toggleSidebar}
+        >
+          <PanelLeft size={ICON} />
+        </IconButton>
+        <IconButton
+          label={inspector === "bottom" ? "Move inspector to the right" : "Move inspector to the bottom"}
+          onClick={toggleInspector}
+        >
+          {inspector === "bottom" ? <PanelRight size={ICON} /> : <PanelBottom size={ICON} />}
+        </IconButton>
+        <Divider />
         <IconButton label="Devices: phones, tablets and Simulators" onClick={() => openDevices(true)}>
           <Smartphone size={ICON} />
         </IconButton>

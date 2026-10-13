@@ -86,3 +86,39 @@ export const useSettings = create<{
   refresh: async () => set({ settings: await api.getSettings() }),
   save: async (s) => set({ settings: await api.setSettings(s) }),
 }));
+
+/** Main window layout: whether the sidebar shows, and where the inspector sits. */
+export interface LayoutPrefs {
+  sidebarHidden: boolean;
+  inspector: "right" | "bottom";
+}
+
+const LAYOUT_KEY = "layout";
+
+function loadLayout(): LayoutPrefs {
+  try {
+    const v = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "null");
+    return { sidebarHidden: v?.sidebarHidden === true, inspector: v?.inspector === "right" ? "right" : "bottom" };
+  } catch {
+    return { sidebarHidden: false, inspector: "bottom" };
+  }
+}
+
+export const useLayout = create<
+  LayoutPrefs & { toggleSidebar: () => void; toggleInspector: () => void }
+>((set, get) => {
+  const update = (patch: Partial<LayoutPrefs>) => {
+    set(patch);
+    const { sidebarHidden, inspector } = get();
+    try {
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify({ sidebarHidden, inspector }));
+    } catch {
+      /* kept for this session only */
+    }
+  };
+  return {
+    ...loadLayout(),
+    toggleSidebar: () => update({ sidebarHidden: !get().sidebarHidden }),
+    toggleInspector: () => update({ inspector: get().inspector === "right" ? "bottom" : "right" }),
+  };
+});

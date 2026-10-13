@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { BodyView } from "../api";
 import { BodyViewer } from "./Inspector";
-import { JsonTree } from "./JsonTree";
+import { childPath, copyText, JsonTree } from "./JsonTree";
 
 const text = (t: string): BodyView => ({ size: t.length, truncated: false, text: t, base64: null });
 
@@ -36,6 +36,21 @@ describe("JsonTree", () => {
     );
     expect(html).toContain("1 key"); // { c: 1 } is collapsed
     expect(html).toContain("Show 50 more of 50");
+  });
+
+  it("puts a copy button on every row", () => {
+    const html = renderToStaticMarkup(<JsonTree value={{ a: 1, b: [true] }} />);
+    expect(html).toContain('aria-label="Copy a"');
+    expect(html).toContain('aria-label="Copy b"');
+    expect(html).toContain('aria-label="Copy b[0]"');
+  });
+
+  it("copies strings unquoted and builds paths", () => {
+    expect(copyText("hi")).toBe("hi");
+    expect(copyText({ a: 1 })).toBe('{\n  "a": 1\n}');
+    expect(childPath(childPath(childPath("", "data", false), "0", true), "content-type", false)).toBe(
+      'data[0]["content-type"]',
+    );
   });
 });
 
