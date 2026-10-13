@@ -5,6 +5,7 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api, errorMessage, type LogEntry, type ScriptInfo } from "../api";
 import { ContextMenu, Modal, button, primaryButton, type MenuEntry } from "../components/ui";
+import { confirmAction, guardedClose } from "../lib/confirm";
 import { formatTime } from "../lib/format";
 import { useUi } from "../state/ui";
 import { monaco } from "./monaco";
@@ -75,8 +76,8 @@ export default function ScriptsWindow() {
   }
   saveRef.current = save;
 
-  function select(fileName: string) {
-    if (dirty && !window.confirm("Discard unsaved changes to this script?")) return;
+  async function select(fileName: string) {
+    if (dirty && !(await confirmAction("Discard your unsaved changes to this script?", "Discard", "Keep Editing"))) return;
     setSelected(fileName);
   }
 
@@ -91,7 +92,7 @@ export default function ScriptsWindow() {
   }
 
   async function remove(s: ScriptInfo) {
-    if (!window.confirm(`Delete “${s.name}”? This removes ${s.fileName} from the scripts folder.`)) return;
+    if (!(await confirmAction(`Delete “${s.name}”? This removes ${s.fileName} from the scripts folder.`, "Delete"))) return;
     try {
       await api.deleteScript(s.fileName);
       const list = await refresh();
@@ -112,9 +113,7 @@ export default function ScriptsWindow() {
     <Modal
       title="Scripts"
       wide
-      onClose={() => {
-        if (!dirty || window.confirm("Discard unsaved changes?")) close();
-      }}
+      onClose={guardedClose(dirty, close, "script changes")}
       footer={
         <>
           {error && <span className="mr-auto whitespace-pre-wrap text-red-500">{error}</span>}

@@ -4,6 +4,7 @@ import { api, errorMessage, type FlowDetail, type OutgoingRequest } from "../api
 import { useFlows } from "../state/flows";
 import { useSettings, useUi, type Draft, type RulesView } from "../state/ui";
 import { useToast } from "./clipboard";
+import { confirmAction } from "./confirm";
 import { buildPredicate } from "./filter";
 import { bodyBytes } from "./http";
 import { mapLocalFrom, newRule, patternFor, type RuleKind } from "./rules";
@@ -28,6 +29,16 @@ export function draftFromDetail(d: FlowDetail): Draft {
     body: body.text ?? "",
     binaryBody: body.text === null && body.size > 0 ? Array.from(bodyBytes(body)) : null,
   };
+}
+
+/** Clears every flow, after asking (there is no undo). */
+export async function clearFlows() {
+  const n = useFlows.getState().order.length;
+  const what = n === 1 ? "1 flow" : `${n} flows`;
+  if (n && !(await confirmAction(`Clear ${what}? This can’t be undone; save a session (⌘S) first to keep them.`, "Clear"))) {
+    return;
+  }
+  await api.clearFlows();
 }
 
 export function parseHeaders(text: string): [string, string][] {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, errorMessage, type Status } from "../api";
-import { files, visibleIds } from "../lib/actions";
+import { clearFlows, files, visibleIds } from "../lib/actions";
 import { emptyDraft, useSettings, useUi } from "../state/ui";
 import { THROTTLE_PRESETS } from "./SettingsDialog";
 import { button, ContextMenu, type MenuEntry } from "./ui";
@@ -168,7 +168,7 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
         <button
           className={button}
           title="Clear all flows (⌘K)"
-          onClick={() => api.clearFlows().catch((e) => onError(errorMessage(e)))}
+          onClick={() => clearFlows().catch((e) => onError(errorMessage(e)))}
         >
           Clear
         </button>

@@ -54,10 +54,12 @@ export function Inspector() {
   const m = detail.meta;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="selectable flex items-start gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
-        <div className="min-w-0 flex-1 break-all font-mono text-xs">
-          <span className="font-semibold">{m.method}</span>{" "}
-          <span className={statusColor(m.status)}>{m.status ?? (m.state === "failed" ? "ERR" : m.state === "paused" ? "paused" : "…")}</span> {m.url}
+      <div className="border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
+        <div className="selectable font-mono text-xs">
+          <div className="line-clamp-3 break-all" title={m.url}>
+            <span className="font-semibold">{m.method}</span>{" "}
+            <span className={statusColor(m.status)}>{m.status ?? (m.state === "failed" ? "ERR" : m.state === "paused" ? "paused" : "…")}</span> {m.url}
+          </div>
           {m.error && <div className="mt-1 text-red-500">{m.error}</div>}
           {m.tags.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
@@ -69,25 +71,27 @@ export function Inspector() {
             </div>
           )}
         </div>
-        {m.state !== "tunnel" && m.state !== "webSocket" && (
-          <>
-            <button className={button} title="Send this request again" onClick={() => repeat(m.id)}>
-              Repeat
-            </button>
-            <button className={button} onClick={() => editAndRepeat(m.id)}>
-              Edit…
-            </button>
-          </>
-        )}
-        <button className={button} onClick={() => copy(m.url, "URL")}>
-          Copy URL
-        </button>
-        <button
-          className={button}
-          onClick={() => copy(formatCurl(m.method, m.url, detail.requestHeaders, detail.requestBody), "cURL command")}
-        >
-          Copy cURL
-        </button>
+        <div className="mt-2 flex flex-wrap gap-1">
+          {m.state !== "tunnel" && m.state !== "webSocket" && (
+            <>
+              <button className={button} title="Send this request again (⌘R)" onClick={() => repeat(m.id)}>
+                Repeat
+              </button>
+              <button className={button} onClick={() => editAndRepeat(m.id)}>
+                Edit and Repeat…
+              </button>
+            </>
+          )}
+          <button className={button} onClick={() => copy(m.url, "URL")}>
+            Copy URL
+          </button>
+          <button
+            className={button}
+            onClick={() => copy(formatCurl(m.method, m.url, detail.requestHeaders, detail.requestBody), "cURL command")}
+          >
+            Copy cURL
+          </button>
+        </div>
       </div>
       <div style={{ height: split.size }} className="flex min-h-0 shrink-0 flex-col">
         <RequestPane detail={detail} />

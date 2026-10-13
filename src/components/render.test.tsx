@@ -58,6 +58,22 @@ describe("BreakpointDialog", () => {
     expect(html).toContain("Content-Type: text/plain");
     expect(html).toContain("1 more paused");
     expect(html).toMatch(/Continues unchanged in 1:(29|30)/);
+    // Only Execute or Abort may release a paused flow.
+    expect(html).not.toContain('aria-label="Close"');
+  });
+});
+
+describe("Onboarding", () => {
+  it("renders in the shared dialog, which can be dismissed", async () => {
+    const { Onboarding } = await import("./Onboarding");
+    const status = {
+      running: true, addr: "127.0.0.1:9090", port: 9090, error: null, caTrusted: false, caCertPath: "/ca.pem",
+      caFingerprint: "AB:CD", systemProxyEnabled: false, dataDir: "/d",
+    };
+    const html = renderToStaticMarkup(<Onboarding status={status} setStatus={() => {}} onClose={() => {}} />);
+    expect(html).toContain('aria-label="Set up Project Proxy"');
+    expect(html).toContain('aria-label="Close"');
+    expect(html).toContain("Skip for now");
   });
 });
 

@@ -46,14 +46,19 @@ export function Tabs<T extends string>({
   right?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-0.5 border-b border-neutral-200 px-2 dark:border-neutral-800" role="tablist">
+    // The divider is an inset shadow rather than a border so the strip can
+    // scroll sideways in a narrow pane without clipping the active underline.
+    <div
+      className="flex items-center gap-0.5 overflow-x-auto px-2 shadow-[inset_0_-1px_0_var(--color-neutral-200)] [scrollbar-width:none] dark:shadow-[inset_0_-1px_0_var(--color-neutral-800)]"
+      role="tablist"
+    >
       {tabs.map((t) => (
         <button
           key={t.id}
           role="tab"
           aria-selected={t.id === value}
           onClick={() => onChange(t.id)}
-          className={`-mb-px border-b-2 px-2 py-1 text-xs ${
+          className={`shrink-0 whitespace-nowrap border-b-2 px-2 py-1 text-xs ${
             t.id === value
               ? "border-sky-600 font-medium text-neutral-900 dark:text-neutral-100"
               : "border-transparent text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
@@ -72,6 +77,10 @@ export interface MenuItem {
   label: string;
   onSelect: () => void;
   disabled?: boolean;
+  /** Shows a check column; true draws the check. */
+  checked?: boolean;
+  /** Leaves the menu open after selecting, for toggles. */
+  keepOpen?: boolean;
 }
 export type MenuEntry = MenuItem | "separator";
 
@@ -116,6 +125,8 @@ export function ContextMenu({
     };
   }, [onClose]);
 
+  const checks = items.some((i) => i !== "separator" && i.checked !== undefined);
+
   return (
     <div
       ref={ref}
@@ -129,14 +140,16 @@ export function ContextMenu({
         ) : (
           <button
             key={i}
-            role="menuitem"
+            role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+            aria-checked={item.checked}
             disabled={item.disabled}
             onClick={() => {
-              onClose();
+              if (!item.keepOpen) onClose();
               item.onSelect();
             }}
-            className="block w-full px-3 py-1 text-left hover:bg-sky-600 hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-inherit"
+            className="flex w-full items-center px-3 py-1 text-left hover:bg-sky-600 hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-inherit"
           >
+            {checks && <span className="w-4 shrink-0">{item.checked ? "✓" : ""}</span>}
             {item.label}
           </button>
         ),
@@ -145,8 +158,18 @@ export function ContextMenu({
   );
 }
 
-/** A draggable divider that resizes the element before it. */
-export function useResizable(initial: number, min: number, max: number, axis: "x" | "y", storageKey: string) {
+/**
+ * A draggable divider that resizes the element before it. `fit` shrinks the
+ * stored size to what currently fits; the returned size is the fitted one.
+ */
+export function useResizable(
+  initial: number,
+  min: number,
+  max: number,
+  axis: "x" | "y",
+  storageKey: string,
+  fit: (size: number) => number = (s) => s,
+) {
   const [size, setSize] = useState(() => {
     try {
       const v = Number(localStorage.getItem(storageKey));
@@ -156,14 +179,17 @@ export function useResizable(initial: number, min: number, max: number, axis: "x
     }
   });
 
+  const shown = fit(size);
+
   function onMouseDown(e: React.MouseEvent) {
     e.preventDefault();
     const start = axis === "x" ? e.clientX : e.clientY;
-    const startSize = size;
+    // Drag from what is on screen, not from a stored size that didn't fit.
+    const startSize = shown;
     let latest = startSize;
     const move = (ev: MouseEvent) => {
       const delta = (axis === "x" ? ev.clientX : ev.clientY) - start;
-      latest = Math.min(max, Math.max(min, startSize + delta));
+      latest = fit(Math.min(max, Math.max(min, startSize + delta)));
       setSize(latest);
     };
     const up = () => {
@@ -181,30 +207,38 @@ export function useResizable(initial: number, min: number, max: number, axis: "x
 
   const handle = (
     <div
+      role="separator"
+      aria-orientation={axis === "x" ? "vertical" : "horizontal"}
       onMouseDown={onMouseDown}
       className={`shrink-0 bg-neutral-200 hover:bg-sky-500 dark:bg-neutral-800 ${
         axis === "x" ? "w-px cursor-col-resize px-px" : "h-px cursor-row-resize py-px"
       }`}
     />
   );
-  return { size, handle };
+  return { size: shown, handle };
 }
 
-/** A centered dialog; Escape or the backdrop closes it. */
+/**
+ * A centered dialog; Escape, the backdrop or ✕ call `onClose`. Without
+ * `onClose` the dialog can only be left through its own buttons.
+ */
 export function Modal({
   title,
   onClose,
   children,
   footer,
   wide,
+  narrow,
 }: {
   title: string;
-  onClose: () => void;
+  onClose?: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
   wide?: boolean;
+  narrow?: boolean;
 }) {
   useEffect(() => {
+    if (!onClose) return;
     const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
@@ -212,21 +246,23 @@ export function Modal({
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-6"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}
     >
       <div
         role="dialog"
         aria-modal
         aria-label={title}
         className={`flex max-h-full w-full flex-col rounded-xl border border-neutral-200 bg-white text-xs shadow-2xl dark:border-neutral-700 dark:bg-neutral-900 ${
-          wide ? "max-w-5xl" : "max-w-2xl"
+          wide ? "max-w-5xl" : narrow ? "max-w-lg" : "max-w-2xl"
         }`}
       >
         <div className="flex items-center border-b border-neutral-200 px-4 py-2.5 dark:border-neutral-800">
           <h2 className="flex-1 text-sm font-semibold">{title}</h2>
-          <button className="opacity-60 hover:opacity-100" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
+          {onClose && (
+            <button className="opacity-60 hover:opacity-100" onClick={onClose} aria-label="Close">
+              ✕
+            </button>
+          )}
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-4">{children}</div>
         {footer && (

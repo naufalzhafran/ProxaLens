@@ -1,5 +1,5 @@
 // Editor for Map Local, Map Remote, Rewrite, Block and Breakpoint rules.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   api,
@@ -13,6 +13,7 @@ import {
 } from "../api";
 import { parseHeaders } from "../lib/actions";
 import { useToast } from "../lib/clipboard";
+import { guardedClose } from "../lib/confirm";
 import { actionsFor, newRule, RULE_KINDS, ruleSummary, type RuleKind } from "../lib/rules";
 import { useUi, type RulesView } from "../state/ui";
 import { button, input, Modal, primaryButton, Tabs } from "./ui";
@@ -23,6 +24,8 @@ const METHODS = ["", "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 export function RulesDialog({ view }: { view: RulesView }) {
   const close = useUi((s) => s.close);
   const [rules, setRules] = useState<Rules | null>(null);
+  // What's on disk, to tell whether closing would lose edits.
+  const [saved, setSaved] = useState<string | null>(null);
   const [tab, setTab] = useState<RuleKind>(view.tab);
   const [selected, setSelected] = useState<string | null>(view.add?.id ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +35,7 @@ export function RulesDialog({ view }: { view: RulesView }) {
     api
       .getRules()
       .then((r) => {
+        setSaved(JSON.stringify(r));
         if (view.add) r = { ...r, [view.tab]: [...r[view.tab], view.add] };
         setRules(r);
         setSelected((s) => s ?? r[view.tab][0]?.id ?? null);
@@ -39,7 +43,10 @@ export function RulesDialog({ view }: { view: RulesView }) {
       .catch((e) => setError(errorMessage(e)));
   }, [view]);
 
+  const dirty = useMemo(() => rules !== null && JSON.stringify(rules) !== saved, [rules, saved]);
+
   if (!rules) return null;
+  const cancel = guardedClose(dirty, close, "rule changes");
   const list = rules[tab] as AnyRule[];
   const current = list.find((r) => r.id === selected) ?? null;
 
@@ -82,12 +89,12 @@ export function RulesDialog({ view }: { view: RulesView }) {
     <Modal
       title="Rules"
       wide
-      onClose={close}
+      onClose={cancel}
       footer={
         <>
           {error && <span className="mr-auto text-red-500">{error}</span>}
           <span className="mr-2 text-neutral-500">The first matching Map Local / Map Remote rule wins; all matching rewrites apply in order.</span>
-          <button className={button} onClick={close}>
+          <button className={button} onClick={cancel}>
             Cancel
           </button>
           <button className={primaryButton} disabled={busy} onClick={save}>

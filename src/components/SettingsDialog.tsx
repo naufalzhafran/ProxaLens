@@ -1,8 +1,9 @@
 // SSL Proxying, Block List, Allow List and Throttle settings.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, errorMessage, type HostList, type McpInfo, type Settings } from "../api";
 import { copy, useToast } from "../lib/clipboard";
+import { guardedClose } from "../lib/confirm";
 import { useSettings, useUi, type SettingsTab } from "../state/ui";
 import { button, input, Modal, primaryButton, Tabs } from "./ui";
 
@@ -24,13 +25,24 @@ const lines = (text: string) =>
 export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
   const close = useUi((s) => s.close);
   const [settings, setSettings] = useState<Settings | null>(null);
+  // What's saved, to tell whether closing would lose edits.
+  const [saved, setSaved] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>(initialTab);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.getSettings().then(setSettings).catch((e) => setError(errorMessage(e)));
+    api
+      .getSettings()
+      .then((s) => {
+        setSettings(s);
+        setSaved(JSON.stringify(s));
+      })
+      .catch((e) => setError(errorMessage(e)));
   }, []);
+
+  const dirty = useMemo(() => settings !== null && JSON.stringify(settings) !== saved, [settings, saved]);
+  const cancel = guardedClose(dirty, close, "settings");
 
   async function save() {
     if (!settings) return;
@@ -49,11 +61,11 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
   return (
     <Modal
       title="Settings"
-      onClose={close}
+      onClose={cancel}
       footer={
         <>
           {error && <span className="mr-auto text-red-500">{error}</span>}
-          <button className={button} onClick={close}>
+          <button className={button} onClick={cancel}>
             Cancel
           </button>
           <button className={primaryButton} disabled={!settings || busy} onClick={save}>

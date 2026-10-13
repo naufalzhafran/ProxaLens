@@ -12,8 +12,29 @@ import { useUi } from "../state/ui";
 import { ContextMenu, type MenuEntry } from "./ui";
 
 const ROW_HEIGHT = 24;
-const COLUMNS =
-  "grid-cols-[48px_minmax(70px,0.6fr)_60px_48px_minmax(110px,1fr)_minmax(150px,2fr)_64px_64px_64px_92px]";
+const HEADER_HEIGHT = 24;
+const GAP = 6;
+const PAD_X = 12;
+
+/** Track sizes and the narrowest each may get; the table scrolls sideways below the sum. */
+const COLUMNS: { label: string; track: string; min: number; right?: boolean }[] = [
+  { label: "#", track: "44px", min: 44 },
+  { label: "App", track: "minmax(60px,0.7fr)", min: 60 },
+  { label: "Method", track: "60px", min: 60 },
+  { label: "Status", track: "48px", min: 48 },
+  { label: "Host", track: "minmax(100px,1.2fr)", min: 100 },
+  { label: "Path", track: "minmax(120px,2fr)", min: 120 },
+  { label: "Type", track: "52px", min: 52 },
+  { label: "Size", track: "56px", min: 56, right: true },
+  { label: "Time", track: "56px", min: 56, right: true },
+  { label: "Started", track: "64px", min: 64 },
+];
+const GRID: React.CSSProperties = {
+  gridTemplateColumns: COLUMNS.map((c) => c.track).join(" "),
+  columnGap: GAP,
+  paddingInline: PAD_X,
+};
+const MIN_WIDTH = COLUMNS.reduce((n, c) => n + c.min, 0) + GAP * (COLUMNS.length - 1) + PAD_X * 2;
 
 export function FlowTable() {
   const order = useFlows((s) => s.order);
@@ -38,6 +59,9 @@ export function FlowTable() {
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 20,
+    // Rows start below the sticky header, which mustn't cover a row scrolled to.
+    scrollMargin: HEADER_HEIGHT,
+    scrollPaddingStart: HEADER_HEIGHT,
   });
 
   // Follow new traffic when scrolled to the bottom.
@@ -67,20 +91,6 @@ export function FlowTable() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div
-        className={`grid ${COLUMNS} gap-2 border-b border-neutral-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:border-neutral-800`}
-      >
-        <span>#</span>
-        <span>App</span>
-        <span>Method</span>
-        <span>Status</span>
-        <span>Host</span>
-        <span>Path</span>
-        <span>Type</span>
-        <span className="text-right">Size</span>
-        <span className="text-right">Time</span>
-        <span>Started</span>
-      </div>
-      <div
         ref={parentRef}
         tabIndex={0}
         onKeyDown={onKeyDown}
@@ -90,65 +100,81 @@ export function FlowTable() {
         }}
         className="min-h-0 flex-1 overflow-auto outline-none"
       >
-        {rows.length === 0 ? (
+        <div style={{ minWidth: MIN_WIDTH }}>
+          <div
+            style={{ ...GRID, height: HEADER_HEIGHT }}
+            className="sticky top-0 z-10 grid items-center border-b border-neutral-200 bg-white text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:border-neutral-800 dark:bg-neutral-950"
+          >
+            {COLUMNS.map((c) => (
+              <span key={c.label} className={`truncate ${c.right ? "text-right" : ""}`}>
+                {c.label}
+              </span>
+            ))}
+          </div>
+          {rows.length > 0 && (
+            <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+              {virtualizer.getVirtualItems().map((v) => {
+                const f = byId[rows[v.index]];
+                const selected = f.id === selectedId;
+                return (
+                  <div
+                    key={f.id}
+                    onClick={() => select(f.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      select(f.id);
+                      setMenu({ x: e.clientX, y: e.clientY, flow: f });
+                    }}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: ROW_HEIGHT,
+                      transform: `translateY(${v.start - HEADER_HEIGHT}px)`,
+                      ...GRID,
+                    }}
+                    className={`grid cursor-default items-center font-mono text-xs ${rowClass(
+                      f,
+                      selected,
+                      v.index,
+                    )}`}
+                  >
+                    <span className={selected ? "" : "text-neutral-400"}>{f.id}</span>
+                    <span className="truncate font-sans" title={f.pid ? `${f.process} (pid ${f.pid})` : undefined}>
+                      {f.process ?? ""}
+                    </span>
+                    <span className="font-semibold">{f.method}</span>
+                    <span className={selected ? "" : statusColor(f.status)}>{statusLabel(f)}</span>
+                    <span className="truncate">{f.host}</span>
+                    <span className="truncate" title={f.tags.length ? `${f.url}\n${f.tags.join(", ")}` : f.url}>
+                      {f.tags.length > 0 && (
+                        <span className={`mr-1 rounded px-1 text-[10px] ${selected ? "bg-white/25" : "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"}`}>
+                          {f.tags.map((t) => t.split(" ")[0]).join(" · ")}
+                        </span>
+                      )}
+                      {f.path}
+                    </span>
+                    <span className={`truncate ${selected ? "" : "text-neutral-500"}`}>
+                      {f.state === "webSocket" ? "ws" : f.state === "tunnel" ? "tunnel" : shortContentType(f.contentType)}
+                    </span>
+                    <span className="text-right">{f.state === "completed" ? formatBytes(f.responseSize) : ""}</span>
+                    <span className="text-right">{formatDuration(f.durationMs)}</span>
+                    <span className={selected ? "" : "text-neutral-500"} title={formatTime(f.startedAt)}>
+                      {formatTime(f.startedAt, false)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {rows.length === 0 && (
           <p className="p-6 text-center text-neutral-500">
             {order.length
               ? "No flows match the current filter."
               : "No traffic yet. Point an app at the proxy, or switch the proxy on."}
           </p>
-        ) : (
-          <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-            {virtualizer.getVirtualItems().map((v) => {
-              const f = byId[rows[v.index]];
-              const selected = f.id === selectedId;
-              return (
-                <div
-                  key={f.id}
-                  onClick={() => select(f.id)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    select(f.id);
-                    setMenu({ x: e.clientX, y: e.clientY, flow: f });
-                  }}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: ROW_HEIGHT,
-                    transform: `translateY(${v.start}px)`,
-                  }}
-                  className={`grid ${COLUMNS} cursor-default items-center gap-2 px-3 font-mono text-xs ${rowClass(
-                    f,
-                    selected,
-                    v.index,
-                  )}`}
-                >
-                  <span className={selected ? "" : "text-neutral-400"}>{f.id}</span>
-                  <span className="truncate font-sans" title={f.pid ? `${f.process} (pid ${f.pid})` : undefined}>
-                    {f.process ?? ""}
-                  </span>
-                  <span className="font-semibold">{f.method}</span>
-                  <span className={selected ? "" : statusColor(f.status)}>{statusLabel(f)}</span>
-                  <span className="truncate">{f.host}</span>
-                  <span className="truncate" title={f.tags.length ? `${f.url}\n${f.tags.join(", ")}` : f.url}>
-                    {f.tags.length > 0 && (
-                      <span className={`mr-1 rounded px-1 text-[10px] ${selected ? "bg-white/25" : "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"}`}>
-                        {f.tags.map((t) => t.split(" ")[0]).join(" · ")}
-                      </span>
-                    )}
-                    {f.path}
-                  </span>
-                  <span className={`truncate ${selected ? "" : "text-neutral-500"}`}>
-                    {f.state === "webSocket" ? "ws" : f.state === "tunnel" ? "tunnel" : shortContentType(f.contentType)}
-                  </span>
-                  <span className="text-right">{f.state === "completed" ? formatBytes(f.responseSize) : ""}</span>
-                  <span className="text-right">{formatDuration(f.durationMs)}</span>
-                  <span className={selected ? "" : "text-neutral-500"}>{formatTime(f.startedAt)}</span>
-                </div>
-              );
-            })}
-          </div>
         )}
       </div>
       <div className="border-t border-neutral-200 px-3 py-1 text-[11px] text-neutral-500 dark:border-neutral-800">

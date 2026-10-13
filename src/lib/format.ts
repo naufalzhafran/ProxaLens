@@ -10,10 +10,12 @@ export function formatDuration(ms: number | null): string {
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
-export function formatTime(epochMs: number): string {
+/** "HH:MM:SS.mmm", or "HH:MM:SS" without milliseconds. */
+export function formatTime(epochMs: number, millis = true): string {
   const d = new Date(epochMs);
   const pad = (n: number, w = 2) => n.toString().padStart(w, "0");
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+  const clock = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return millis ? `${clock}.${pad(d.getMilliseconds(), 3)}` : clock;
 }
 
 /** Tailwind text color for an HTTP status code. */

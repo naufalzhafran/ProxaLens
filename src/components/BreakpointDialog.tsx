@@ -60,10 +60,11 @@ function Editor({ hit, waiting }: { hit: BreakpointHit; waiting: number }) {
   }
 
   return (
+    // No onClose: Escape or a stray click must not send a half-edited request.
+    // Execute and Abort are the only ways out.
     <Modal
       title={`Breakpoint · ${isRequest ? "Request" : "Response"} #${hit.flowId}`}
       wide
-      onClose={() => resume(false)}
       footer={
         <>
           {error && <span className="mr-auto text-red-500">{error}</span>}

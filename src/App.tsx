@@ -13,8 +13,9 @@ import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import { useResizable } from "./components/ui";
-import { files, repeat } from "./lib/actions";
+import { clearFlows, files, repeat } from "./lib/actions";
 import { useToast } from "./lib/clipboard";
+import { fitSidebar, fitTable, INSPECTOR_MIN, SIDEBAR_MIN, TABLE_MIN } from "./lib/layout";
 import { MAX_FLOWS, useFlows } from "./state/flows";
 import { emptyDraft, useUi } from "./state/ui";
 
@@ -35,8 +36,9 @@ export default function App() {
   const scriptsOpen = useUi((s) => s.scriptsOpen);
   const devicesOpen = useUi((s) => s.devicesOpen);
   const hits = useBreakpoints();
-  const sidebar = useResizable(200, 140, 400, "x", "sidebarWidth");
-  const table = useResizable(640, 320, 2000, "x", "tableWidth");
+  const [panes, panesWidth] = useWidth();
+  const sidebar = useResizable(200, SIDEBAR_MIN, 400, "x", "sidebarWidth", (w) => fitSidebar(panesWidth, w));
+  const table = useResizable(760, TABLE_MIN, 2000, "x", "tableWidth", (w) => fitTable(panesWidth, sidebar.size, w));
 
   const reload = useCallback(async () => {
     const { flows } = await api.listFlows(0, MAX_FLOWS);
@@ -85,23 +87,24 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey || e.shiftKey || e.altKey) return;
+      // Leave shortcuts to the dialog while one is open (setup, breakpoints and
+      // the Scripts editor included), so ⌘K can't clear traffic behind it.
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const ui = useUi.getState();
-      // Leave shortcuts alone while a dialog is open (except ⌘F/⌘K).
-      const modal = ui.composer || ui.diff || ui.settingsTab || ui.rules || ui.scriptsOpen || ui.devicesOpen;
       const selected = useFlows.getState().selectedId;
       const actions: Record<string, () => void> = {
         f: () => {
           filterRef.current?.focus();
           filterRef.current?.select();
         },
-        k: () => api.clearFlows().catch((err) => setError(errorMessage(err))),
-        o: () => !modal && files.open(),
-        s: () => !modal && files.saveSession(),
-        n: () => !modal && ui.openComposer(emptyDraft),
-        r: () => !modal && selected !== null && repeat(selected),
-        ",": () => !modal && ui.openSettings("general"),
-        l: () => !modal && ui.openRules({ tab: "mapLocal" }),
-        j: () => !modal && ui.openScripts(true),
+        k: () => clearFlows().catch((err) => setError(errorMessage(err))),
+        o: () => files.open(),
+        s: () => files.saveSession(),
+        n: () => ui.openComposer(emptyDraft),
+        r: () => selected !== null && repeat(selected),
+        ",": () => ui.openSettings("general"),
+        l: () => ui.openRules({ tab: "mapLocal" }),
+        j: () => ui.openScripts(true),
       };
       const action = actions[e.key];
       if (action) {
@@ -136,7 +139,7 @@ export default function App() {
           </button>
         </Banner>
       )}
-      <div className="flex min-h-0 flex-1">
+      <div ref={panes} className="flex min-h-0 flex-1">
         <div style={{ width: sidebar.size }} className="flex shrink-0 flex-col bg-neutral-50 dark:bg-neutral-900/50">
           <Sidebar />
         </div>
@@ -146,7 +149,7 @@ export default function App() {
           <FlowTable />
         </div>
         {table.handle}
-        <div className="flex min-w-[280px] flex-1 flex-col">
+        <div style={{ minWidth: INSPECTOR_MIN }} className="flex min-w-0 flex-1 flex-col">
           <Inspector />
         </div>
       </div>
@@ -171,6 +174,18 @@ export default function App() {
       )}
     </div>
   );
+}
+
+/** A ref to attach, and the element's current width (0 until measured). */
+function useWidth(): [(el: HTMLDivElement | null) => void, number] {
+  const [width, setWidth] = useState(0);
+  const ref = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width];
 }
 
 function Banner({
