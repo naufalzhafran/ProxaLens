@@ -855,3 +855,78 @@ async fn scripts_change_traffic_and_can_answer_requests() {
     assert_eq!(h.wait_done("/x").await.tags, vec!["Script"]);
     assert!(scripts.console().is_empty(), "{:?}", scripts.console());
 }
+
+#[tokio::test]
+async fn captures_websocket_messages_both_ways() {
+    use hudsucker::futures::{SinkExt, StreamExt};
+    use hudsucker::tokio_tungstenite::{accept_async, client_async, tungstenite::Message};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    // Echo server.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let ws_addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut ws = accept_async(tcp).await.unwrap();
+        while let Some(Ok(msg)) = ws.next().await {
+            if msg.is_text() {
+                let reply = format!("echo: {}", msg.to_text().unwrap());
+                ws.send(Message::text(reply)).await.unwrap();
+            }
+        }
+    });
+
+    let h = harness(vec![], None).await;
+    // Open a tunnel through the proxy, then speak WebSocket inside it.
+    let mut tcp = tokio::net::TcpStream::connect(h.engine.addr().await.unwrap())
+        .await
+        .unwrap();
+    tcp.write_all(format!("CONNECT {ws_addr} HTTP/1.1\r\nHost: {ws_addr}\r\n\r\n").as_bytes())
+        .await
+        .unwrap();
+    let mut buf = [0u8; 256];
+    let n = tcp.read(&mut buf).await.unwrap();
+    assert!(String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 200"));
+    let (mut ws, _) = client_async(format!("ws://{ws_addr}/chat"), tcp)
+        .await
+        .unwrap();
+    ws.send(Message::text("hello")).await.unwrap();
+    let reply = ws.next().await.unwrap().unwrap();
+    assert_eq!(reply.to_text().unwrap(), "echo: hello");
+    ws.close(None).await.unwrap();
+
+    let mut flow = None;
+    for _ in 0..100 {
+        let flows = h.engine.store.list(0, 10).0;
+        if let Some(f) = flows
+            .into_iter()
+            .find(|f| f.path == "/chat" && f.ws_message_count >= 2)
+        {
+            flow = Some(f);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let f = flow.expect("websocket flow recorded");
+    assert_eq!((f.state, f.status), (FlowState::WebSocket, Some(101)));
+    let (_, d) = h.engine.store.get(f.id).unwrap();
+    let texts: Vec<_> = d
+        .ws_messages
+        .iter()
+        .filter(|m| m.kind == "text")
+        .map(|m| {
+            (
+                m.direction,
+                String::from_utf8_lossy(&m.payload).into_owned(),
+            )
+        })
+        .collect();
+    use project_proxy_lib::engine::store::WsDirection::*;
+    assert_eq!(
+        texts,
+        vec![
+            (ClientToServer, "hello".into()),
+            (ServerToClient, "echo: hello".into())
+        ]
+    );
+}

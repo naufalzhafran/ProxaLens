@@ -60,3 +60,26 @@ describe("BreakpointDialog", () => {
     expect(html).toMatch(/Continues unchanged in 1:(29|30)/);
   });
 });
+
+describe("WebSocket filtering", () => {
+  it("filters by direction, text and control frames", async () => {
+    const { filterWs } = await import("./Inspector");
+    const msg = (direction: "clientToServer" | "serverToClient", kind: "text" | "ping", text: string) => ({
+      direction,
+      at: 0,
+      kind,
+      size: text.length,
+      payload: { size: text.length, truncated: false, text, base64: null },
+    });
+    const list = [
+      msg("clientToServer", "text", "subscribe prices"),
+      msg("serverToClient", "text", '{"price":1}'),
+      msg("serverToClient", "ping", ""),
+    ];
+    expect(filterWs(list, "all", "", false)).toEqual([0, 1]);
+    expect(filterWs(list, "all", "", true)).toEqual([0, 1, 2]);
+    expect(filterWs(list, "serverToClient", "", false)).toEqual([1]);
+    expect(filterWs(list, "all", "PRICE", false)).toEqual([0, 1]);
+    expect(filterWs(list, "clientToServer", "unsubscribe", false)).toEqual([]);
+  });
+});

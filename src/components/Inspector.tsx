@@ -20,7 +20,7 @@ import {
 } from "../lib/http";
 import { useFlows } from "../state/flows";
 import { JsonTree } from "./JsonTree";
-import { button, Tabs, useResizable } from "./ui";
+import { button, Chip, Tabs, useResizable } from "./ui";
 
 export function Inspector() {
   const selectedId = useFlows((s) => s.selectedId);
@@ -173,7 +173,7 @@ function ResponsePane({ detail }: { detail: FlowDetail }) {
         {shown === "raw" && (
           <Pre text={rawResponse(m.status, m.httpVersion, detail.responseHeaders, detail.responseBody)} />
         )}
-        {shown === "messages" && <WsMessages messages={detail.wsMessages} />}
+        {shown === "messages" && <WsMessages messages={detail.wsMessages} total={m.wsMessageCount} />}
         {shown === "timing" && <Timing detail={detail} />}
       </div>
     </>
@@ -313,29 +313,86 @@ function Pre({ text }: { text: string }) {
   return <pre className="whitespace-pre-wrap break-all font-mono text-xs">{text}</pre>;
 }
 
-function WsMessages({ messages }: { messages: WsMessageView[] }) {
-  const [open, setOpen] = useState<number | null>(null);
+type WsFilter = "all" | "clientToServer" | "serverToClient";
+
+/** Messages after the direction filter and search; exported for tests. */
+export function filterWs(messages: WsMessageView[], dir: WsFilter, query: string, controlFrames: boolean): number[] {
+  const q = query.trim().toLowerCase();
+  const out: number[] = [];
+  messages.forEach((m, i) => {
+    if (dir !== "all" && m.direction !== dir) return;
+    if (!controlFrames && (m.kind === "ping" || m.kind === "pong")) return;
+    if (q && !(m.payload.text ?? "").toLowerCase().includes(q)) return;
+    out.push(i);
+  });
+  return out;
+}
+
+function WsMessages({ messages, total }: { messages: WsMessageView[]; total: number }) {
+  const [dir, setDir] = useState<WsFilter>("all");
+  const [query, setQuery] = useState("");
+  const [control, setControl] = useState(false);
+  const [selected, setSelected] = useState<number | null>(null);
+  const shown = useMemo(() => filterWs(messages, dir, query, control), [messages, dir, query, control]);
   if (!messages.length) return <p className="text-neutral-500">No messages yet</p>;
+  const first = messages[0].at;
+  const current = selected !== null ? messages[selected] : null;
+
   return (
-    <ul className="font-mono">
-      {messages.map((w, i) => (
-        <li key={i} className="border-b border-neutral-100 dark:border-neutral-900">
-          <div className="flex cursor-default gap-2 py-0.5" onClick={() => setOpen(open === i ? null : i)}>
-            <span className={w.direction === "clientToServer" ? "text-sky-600" : "text-emerald-600"}>
-              {w.direction === "clientToServer" ? "↑" : "↓"}
-            </span>
-            <span className="w-28 shrink-0 text-neutral-500">{formatTime(w.at)}</span>
-            <span className="w-12 shrink-0 text-neutral-500">{w.kind}</span>
-            <span className="min-w-0 flex-1 truncate">{w.payload.text ?? `${formatBytes(w.size)} binary`}</span>
-          </div>
-          {open === i && (
-            <div className="py-1 pl-6">
-              <BodyViewer body={w.payload} contentType={null} />
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-1">
+        {(["all", "clientToServer", "serverToClient"] as const).map((d) => (
+          <Chip key={d} active={dir === d} onClick={() => setDir(d)}>
+            {{ all: "All", clientToServer: "↑ Sent", serverToClient: "↓ Received" }[d]}
+          </Chip>
+        ))}
+        <label className="ml-1 flex items-center gap-1 text-neutral-500">
+          <input type="checkbox" checked={control} onChange={(e) => setControl(e.target.checked)} />
+          ping/pong
+        </label>
+        <input
+          className="ml-auto w-40 rounded-md border border-neutral-300 bg-transparent px-2 py-0.5 dark:border-neutral-700"
+          placeholder="Search messages"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <span className="text-neutral-500">
+          {shown.length} of {messages.length}
+          {total > messages.length && ` (first ${messages.length} of ${total} kept)`}
+        </span>
+      </div>
+      <div className="min-h-[120px] flex-1 overflow-auto rounded-md border border-neutral-200 font-mono dark:border-neutral-800">
+        {shown.map((i) => {
+          const w = messages[i];
+          const sel = i === selected;
+          return (
+            <div
+              key={i}
+              onClick={() => setSelected(sel ? null : i)}
+              className={`flex cursor-default gap-2 border-b border-neutral-100 px-1 py-0.5 dark:border-neutral-900 ${
+                sel ? "bg-sky-600 text-white" : ""
+              }`}
+            >
+              <span className={sel ? "" : w.direction === "clientToServer" ? "text-sky-600" : "text-emerald-600"}>
+                {w.direction === "clientToServer" ? "↑" : "↓"}
+              </span>
+              <span className={`w-20 shrink-0 text-right ${sel ? "" : "text-neutral-500"}`}>+{formatDuration(w.at - first) || "0 ms"}</span>
+              <span className={`w-12 shrink-0 ${sel ? "" : "text-neutral-500"}`}>{w.kind}</span>
+              <span className={`w-16 shrink-0 text-right ${sel ? "" : "text-neutral-500"}`}>{formatBytes(w.size)}</span>
+              <span className="min-w-0 flex-1 truncate">{w.payload.text ?? "binary"}</span>
             </div>
-          )}
-        </li>
-      ))}
-    </ul>
+          );
+        })}
+      </div>
+      {current && (
+        <div className="max-h-[50%] overflow-auto rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+          <p className="mb-1 text-neutral-500">
+            {current.direction === "clientToServer" ? "Sent" : "Received"} at {formatTime(current.at)} · {current.kind}
+          </p>
+          <BodyViewer body={current.payload} contentType={null} />
+        </div>
+      )}
+    </div>
   );
 }
 
