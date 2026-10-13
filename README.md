@@ -54,11 +54,6 @@ Proxyman-style tooling, but free and hackable. A fast Rust engine does the heavy
 ### 🤖 MCP server
 Let agents like Claude Code list, search and replay traffic, add mocks and manage scripts. Off by default — enable it under **Settings → General**.
 
-## 🗺️ Roadmap
-
-- [ ] Privileged helper for password-free proxy switching (needs a signed app)
-- [ ] Windows support
-
 ## 🧑‍💻 Development
 
 **Requirements:** Rust (via `rustup`), Node 20+, Xcode command line tools.
