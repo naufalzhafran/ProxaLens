@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "test": "vitest run",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "bump": "node scripts/version.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

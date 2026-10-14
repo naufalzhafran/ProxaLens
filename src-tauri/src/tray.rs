@@ -1,8 +1,8 @@
 //! Menu bar (tray) icon: proxy status, a system-proxy toggle, and quit.
 
+use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::image::Image;
 use tauri::{AppHandle, Manager, Wry};
 
 use crate::commands::{self, AppState};

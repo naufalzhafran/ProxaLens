@@ -122,6 +122,7 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
                 </label>
               ))}
               <McpSection settings={settings} setSettings={setSettings} />
+              <Help>ProxaLens v{__APP_VERSION__}</Help>
             </div>
           )}
           {tab === "ssl" && (
