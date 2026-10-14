@@ -56,7 +56,7 @@ Let agents like Claude Code list, search and replay traffic, add mocks and manag
 
 ## 📥 Install
 
-1. Download `ProxaLens_<version>_aarch64.dmg` from the [latest release](https://github.com/naufalzhafran/project-proxy/releases/latest). Apple Silicon only.
+1. Download `ProxaLens_<version>_aarch64.dmg` from the [latest release](https://github.com/naufalzhafran/ProxaLens/releases/latest). Apple Silicon only.
 2. Open it and drag **ProxaLens** to **Applications**.
 3. The app is unsigned, so macOS will block it the first time. Clear the quarantine flag:
 
