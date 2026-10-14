@@ -48,7 +48,6 @@ regex = "1"
 rquickjs = "0.14.0"
 prost-reflect = { version = "0.16.5", features = ["serde"] }
 protox = "0.10.0"
-prost = "0.14.4"
 libproc = "0.14.11"
 rmcp = { version = "3.5.1", features = ["server", "macros", "transport-streamable-http-server"] }
 tower-service = "0.3"

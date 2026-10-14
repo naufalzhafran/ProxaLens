@@ -3637,7 +3637,6 @@ dependencies = [
  "libc",
  "libproc",
  "parking_lot",
- "prost",
  "prost-reflect",
  "protox",
  "regex",

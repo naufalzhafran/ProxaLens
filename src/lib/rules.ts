@@ -27,7 +27,6 @@ export function activeRules(rules: Rules): [string, number][] {
   );
 }
 
-export const emptyRules: Rules = { mapLocal: [], mapRemote: [], rewrite: [], block: [], breakpoints: [] };
 
 function newId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
