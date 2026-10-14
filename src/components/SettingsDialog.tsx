@@ -5,6 +5,7 @@ import { api, errorMessage, type HostList, type McpInfo, type Settings } from ".
 import { copy, useToast } from "../lib/clipboard";
 import { guardedClose } from "../lib/confirm";
 import { useSettings, useUi, type SettingsTab } from "../state/ui";
+import { useUpdate } from "../state/update";
 import { button, input, Modal, primaryButton, Tabs } from "./ui";
 
 /** Mirrors `settings::preset` in the engine: bytes/s and latency (ms). */
@@ -122,7 +123,7 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
                 </label>
               ))}
               <McpSection settings={settings} setSettings={setSettings} />
-              <Help>ProxaLens v{__APP_VERSION__}</Help>
+              <UpdateSection />
             </div>
           )}
           {tab === "ssl" && (
@@ -163,6 +164,34 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
         </div>
       )}
     </Modal>
+  );
+}
+
+function UpdateSection() {
+  const { phase, update, error, check, install } = useUpdate();
+  const busy = phase === "checking" || phase === "installing";
+  const message = {
+    idle: null,
+    checking: "Checking…",
+    upToDate: "You’re up to date.",
+    available: `v${update?.version} is available.`,
+    installing: "Installing… The app restarts when it’s done.",
+    error: `Update failed: ${error}`,
+  }[phase];
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-muted">ProxaLens v{__APP_VERSION__}</span>
+      {phase === "available" ? (
+        <button className={button} onClick={install}>
+          Install and restart
+        </button>
+      ) : (
+        <button className={button} disabled={busy} onClick={check}>
+          Check for updates
+        </button>
+      )}
+      {message && <span className="text-muted">{message}</span>}
+    </div>
   );
 }
 

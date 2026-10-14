@@ -36,6 +36,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
             match engine::migrate_data_dir(&data_dir) {
@@ -94,6 +95,7 @@ pub fn run() {
             commands::set_system_proxy,
             commands::install_ca,
             commands::take_restore_notice,
+            commands::restart_app,
             commands::list_flows,
             commands::get_flow,
             commands::clear_flows,

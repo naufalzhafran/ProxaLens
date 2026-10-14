@@ -27,6 +27,7 @@ import {
 } from "./lib/layout";
 import { MAX_FLOWS, useFlows } from "./state/flows";
 import { emptyDraft, useLayout, useUi } from "./state/ui";
+import { useUpdate } from "./state/update";
 
 const ScriptsWindow = lazy(() => import("./scripts/ScriptsWindow"));
 
@@ -45,6 +46,7 @@ export default function App() {
   const scriptsOpen = useUi((s) => s.scriptsOpen);
   const devicesOpen = useUi((s) => s.devicesOpen);
   const hits = useBreakpoints();
+  const update = useUpdate();
   const sidebarHidden = useLayout((s) => s.sidebarHidden);
   const bottom = useLayout((s) => s.inspector === "bottom");
   const [panes, panesSize] = useSize();
@@ -61,6 +63,11 @@ export default function App() {
   const reload = useCallback(async () => {
     const { flows } = await api.listFlows(0, MAX_FLOWS);
     useFlows.getState().reset(flows);
+  }, []);
+
+  // Dev builds aren't installed apps, so there is nothing to update.
+  useEffect(() => {
+    if (!import.meta.env.DEV) useUpdate.getState().check();
   }, []);
 
   useEffect(() => {
@@ -146,6 +153,24 @@ export default function App() {
       {notice && (
         <Banner tone="info" onClose={() => setNotice(null)}>
           Restored your network proxy settings from a previous session ({notice.restored.join(", ")}).
+        </Banner>
+      )}
+      {update.update && !update.dismissed && (update.phase === "available" || update.phase === "installing") && (
+        <Banner tone="info" onClose={update.phase === "available" ? update.dismiss : undefined}>
+          {update.phase === "installing" ? (
+            <>
+              Installing ProxaLens v{update.update.version}
+              {update.progress !== null && ` (${Math.round(update.progress * 100)}%)`}… The app restarts when it’s done
+              {status?.systemProxyEnabled && ", and the system proxy is turned off"}.
+            </>
+          ) : (
+            <>
+              ProxaLens v{update.update.version} is available.{" "}
+              <button className="underline" onClick={update.install}>
+                Install and restart
+              </button>
+            </>
+          )}
         </Banner>
       )}
       {shownError && (

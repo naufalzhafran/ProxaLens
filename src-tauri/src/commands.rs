@@ -203,6 +203,13 @@ pub fn take_restore_notice(state: State<'_, AppState>) -> Option<RestoreReport> 
     state.notice.lock().take()
 }
 
+/// Relaunches the app after an update is installed. Goes through the normal
+/// exit path, so the system proxy is restored first.
+#[tauri::command]
+pub fn restart_app(app: AppHandle) {
+    app.request_restart();
+}
+
 #[derive(Serialize)]
 pub struct FlowPage {
     flows: Vec<FlowMeta>,

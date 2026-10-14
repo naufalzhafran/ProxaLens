@@ -226,6 +226,7 @@ export const api = {
   setSystemProxy: (enabled: boolean) => invoke<Status>("set_system_proxy", { enabled }),
   installCa: () => invoke<Status>("install_ca"),
   takeRestoreNotice: () => invoke<RestoreReport | null>("take_restore_notice"),
+  restartApp: () => invoke<void>("restart_app"),
   listFlows: (offset: number, limit: number) =>
     invoke<{ flows: FlowMeta[]; total: number }>("list_flows", { offset, limit }),
   getFlow: (id: number) => invoke<FlowDetail | null>("get_flow", { id }),

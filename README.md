@@ -66,6 +66,8 @@ Let agents like Claude Code list, search and replay traffic, add mocks and manag
 
    Or open it once, then choose **System Settings → Privacy & Security → Open Anyway**.
 
+After that, ProxaLens checks for updates when it starts and offers to install them. You can also check under **Settings → General**.
+
 ## 🧑‍💻 Development
 
 **Requirements:** Rust (via `rustup`), Node 20+, Xcode command line tools.
@@ -98,7 +100,9 @@ git commit -am "Release vX.Y.Z" && git tag vX.Y.Z
 git push origin main --tags
 ```
 
-The `Release` workflow tests, builds the `.dmg` and attaches it to a draft GitHub Release. Review the draft and publish it.
+The `Release` workflow tests, builds the `.dmg` and attaches it to a draft GitHub Release. Review the draft and publish it; installed apps see the update once it's published.
+
+Update bundles are signed with the updater key in the `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) repo secrets. For a local `npm run tauri build`, export the same variables.
 
 ### 🏗️ Project layout
 

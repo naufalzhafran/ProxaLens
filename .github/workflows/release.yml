@@ -44,12 +44,15 @@ jobs:
           npm test
           cargo test --manifest-path src-tauri/Cargo.toml
 
-      # No signing secrets: Tauri ad-hoc signs the app, which Apple Silicon needs to launch it.
+      # No Apple signing: Tauri ad-hoc signs the app, which Apple Silicon needs to launch it.
+      # The updater key signs the update bundle, and tauri-action uploads latest.json for it.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          args: --target aarch64-apple-darwin --bundles dmg
+          args: --target aarch64-apple-darwin --bundles app,dmg
           tagName: ${{ steps.version.outputs.tag }}
           releaseName: ProxaLens ${{ steps.version.outputs.tag }}
           releaseBody: |
