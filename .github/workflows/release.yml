@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Resolve version
+        id: version
+        run: |
+          version="v$(node scripts/version.mjs)"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "$version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json ($version). Run npm run bump first." >&2
+            exit 1
+          fi
+          echo "tag=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        run: |
+          npm test
+          cargo test --manifest-path src-tauri/Cargo.toml
+
+      # No signing secrets: Tauri ad-hoc signs the app, which Apple Silicon needs to launch it.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target aarch64-apple-darwin --bundles dmg
+          tagName: ${{ steps.version.outputs.tag }}
+          releaseName: ProxaLens ${{ steps.version.outputs.tag }}
+          releaseBody: |
+            Apple Silicon only. The app is unsigned, so after copying it to Applications run:
+
+            ```
+            xattr -dr com.apple.quarantine /Applications/ProxaLens.app
+            ```
+          releaseDraft: true
+          prerelease: false

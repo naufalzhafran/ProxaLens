@@ -54,6 +54,18 @@ Proxyman-style tooling, but free and hackable. A fast Rust engine does the heavy
 ### 🤖 MCP server
 Let agents like Claude Code list, search and replay traffic, add mocks and manage scripts. Off by default — enable it under **Settings → General**.
 
+## 📥 Install
+
+1. Download `ProxaLens_<version>_aarch64.dmg` from the [latest release](https://github.com/naufalzhafran/project-proxy/releases/latest). Apple Silicon only.
+2. Open it and drag **ProxaLens** to **Applications**.
+3. The app is unsigned, so macOS will block it the first time. Clear the quarantine flag:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/ProxaLens.app
+   ```
+
+   Or open it once, then choose **System Settings → Privacy & Security → Open Anyway**.
+
 ## 🧑‍💻 Development
 
 **Requirements:** Rust (via `rustup`), Node 20+, Xcode command line tools.
@@ -77,6 +89,16 @@ curl -x http://127.0.0.1:9090 \
   --cacert "$HOME/Library/Application Support/dev.naufalzhafran.proxalens/ca/ca-cert.pem" \
   https://httpbin.org/get
 ```
+
+**Releasing**
+
+```bash
+npm run bump <patch|minor|major|x.y.z>
+git commit -am "Release vX.Y.Z" && git tag vX.Y.Z
+git push origin main --tags
+```
+
+The `Release` workflow tests, builds the `.dmg` and attaches it to a draft GitHub Release. Review the draft and publish it.
 
 ### 🏗️ Project layout
 
