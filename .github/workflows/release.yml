@@ -61,5 +61,5 @@ jobs:
             ```
             xattr -dr com.apple.quarantine /Applications/ProxaLens.app
             ```
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
