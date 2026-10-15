@@ -131,7 +131,7 @@ export function SettingsDialog({ initialTab = "ssl" }: { initialTab?: Tab }) {
               <Help>
                 Which HTTPS hosts are decrypted. Hosts that aren’t are passed through untouched and listed as a single
                 CONNECT row, which is what you want for apps that pin their certificates. Patterns: <Code>example.com</Code>,{" "}
-                <Code>*.example.com</Code> (subdomains), <Code>*</Code>.
+                <Code>*.example.com</Code> (subdomains), <Code>*example*</Code> (anywhere in the host), <Code>*</Code>.
               </Help>
               <HostsField
                 label="Only decrypt these hosts (leave empty to decrypt everything)"

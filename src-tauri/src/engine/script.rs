@@ -143,7 +143,7 @@ fn unquote(s: &str) -> String {
 }
 
 /// `*` and `?` wildcard match, case-insensitive.
-fn wildcard(pattern: &str, s: &str) -> bool {
+pub(crate) fn wildcard(pattern: &str, s: &str) -> bool {
     let p: Vec<char> = pattern.to_lowercase().chars().collect();
     let s: Vec<char> = s.to_lowercase().chars().collect();
     let (mut pi, mut si) = (0, 0);

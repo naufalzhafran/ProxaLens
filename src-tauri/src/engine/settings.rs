@@ -228,17 +228,11 @@ fn matches_any(patterns: &[String], host: &str) -> bool {
     patterns.iter().any(|p| match_host(p, host))
 }
 
-/// `example.com` matches exactly; `*.example.com` matches subdomains only
-/// (as in httpmon); `*` matches everything.
+/// Case-insensitive `*`/`?` glob over the host name: `example.com` matches
+/// exactly, `*.example.com` matches subdomains only (as in httpmon), `*`
+/// matches everything and `*shopee*` matches any host containing `shopee`.
 pub fn match_host(pattern: &str, host: &str) -> bool {
-    let p = pattern.trim().to_ascii_lowercase();
-    if p == "*" {
-        return true;
-    }
-    match p.strip_prefix('*') {
-        Some(suffix) if suffix.starts_with('.') => host.ends_with(suffix),
-        _ => p == host,
-    }
+    super::script::wildcard(pattern.trim(), host)
 }
 
 #[cfg(test)]
@@ -262,6 +256,17 @@ mod tests {
         assert!(match_host("Example.com", "example.com"));
         assert!(!match_host("example.com", "api.example.com"));
         assert!(match_host("*", "anything.io"));
+    }
+
+    #[test]
+    fn glob_anywhere_in_host() {
+        assert!(match_host("*shopee*", "sv.uat.shopee.co.id"));
+        assert!(match_host("*shopee*", "mall.uat.shopee.my"));
+        assert!(match_host("*shopee*", "shopee.sg"));
+        assert!(!match_host("*shopee*", "example.com"));
+        assert!(match_host("*.uat.shopee.*", "mall.uat.shopee.my"));
+        assert!(!match_host("*.uat.shopee.*", "mall.shopee.my"));
+        assert!(match_host("api-?.example.com", "api-2.example.com"));
     }
 
     #[test]
