@@ -13,6 +13,9 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history and tags, for the changelog.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -39,6 +42,15 @@ jobs:
           fi
           echo "tag=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Changelog
+        id: changelog
+        run: |
+          {
+            echo "body<<CHANGELOG_EOF"
+            scripts/changelog.sh "${{ steps.version.outputs.tag }}"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Test
         run: |
           npm test
@@ -55,11 +67,6 @@ jobs:
           args: --target aarch64-apple-darwin --bundles app,dmg
           tagName: ${{ steps.version.outputs.tag }}
           releaseName: ProxaLens ${{ steps.version.outputs.tag }}
-          releaseBody: |
-            Apple Silicon only. The app is unsigned, so after copying it to Applications run:
-
-            ```
-            xattr -dr com.apple.quarantine /Applications/ProxaLens.app
-            ```
+          releaseBody: ${{ steps.changelog.outputs.body }}
           releaseDraft: false
           prerelease: false
