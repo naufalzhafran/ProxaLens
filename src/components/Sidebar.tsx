@@ -1,5 +1,5 @@
 // Left pane: all traffic, pinned domains, and a domain → host tree.
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { ChevronRight, Pin } from "lucide-react";
 import type { FlowMeta } from "../api";
 import type { Scope } from "../lib/filter";
@@ -41,7 +41,7 @@ export function groupByApp(order: number[], byId: Record<number, FlowMeta>): [st
   return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
 
-export function Sidebar() {
+export const Sidebar = memo(function Sidebar() {
   const order = useFlows((s) => s.order);
   const byId = useFlows((s) => s.byId);
   const scope = useFlows((s) => s.scope);
@@ -144,7 +144,7 @@ export function Sidebar() {
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
     </nav>
   );
-}
+});
 
 function Heading({ children }: { children: React.ReactNode }) {
   return (

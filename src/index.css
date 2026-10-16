@@ -76,6 +76,20 @@ body {
   outline-offset: 1px;
 }
 
+/*
+ * While a divider is dragged (see startDrag), keep the resize cursor
+ * everywhere and stop rows and buttons under the pointer reacting to hover.
+ */
+:root[data-resizing="x"] {
+  cursor: col-resize;
+}
+:root[data-resizing="y"] {
+  cursor: row-resize;
+}
+:root[data-resizing] body {
+  pointer-events: none;
+}
+
 .selectable {
   user-select: text;
   -webkit-user-select: text;

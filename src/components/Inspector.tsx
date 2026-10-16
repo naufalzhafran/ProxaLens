@@ -1,5 +1,5 @@
 // Right pane: request on top, response below, each with tabs.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Copy as CopyIcon } from "lucide-react";
 import { api, errorMessage, type BodyView, type FlowDetail, type WsMessageView } from "../api";
 import { editAndRepeat, repeat } from "../lib/actions";
@@ -25,7 +25,7 @@ import { JsonTree } from "./JsonTree";
 import { button, Chip, ContextMenu, input, Tabs, useResizable } from "./ui";
 
 /** `sideBySide` puts request and response next to each other, for a wide, short pane. */
-export function Inspector({ sideBySide = false }: { sideBySide?: boolean }) {
+export const Inspector = memo(function Inspector({ sideBySide = false }: { sideBySide?: boolean }) {
   const selectedId = useFlows((s) => s.selectedId);
   // Refetch when the selected flow's summary changes (e.g. response arrives).
   const meta = useFlows((s) => (s.selectedId === null ? null : s.byId[s.selectedId]));
@@ -120,12 +120,12 @@ export function Inspector({ sideBySide = false }: { sideBySide?: boolean }) {
       )}
     </div>
   );
-}
+});
 
 type ReqTab = "headers" | "query" | "cookies" | "body" | "raw";
 type ResTab = "headers" | "cookies" | "body" | "raw" | "messages" | "timing";
 
-function RequestPane({ detail }: { detail: FlowDetail }) {
+const RequestPane = memo(function RequestPane({ detail }: { detail: FlowDetail }) {
   const [tab, setTab] = useState<ReqTab>("headers");
   const m = detail.meta;
   const query = useMemo(() => queryParams(m.url), [m.url]);
@@ -156,9 +156,9 @@ function RequestPane({ detail }: { detail: FlowDetail }) {
       </div>
     </>
   );
-}
+});
 
-function ResponsePane({ detail }: { detail: FlowDetail }) {
+const ResponsePane = memo(function ResponsePane({ detail }: { detail: FlowDetail }) {
   const [tab, setTab] = useState<ResTab>("body");
   const m = detail.meta;
   const cookies = useMemo(() => responseCookies(detail.responseHeaders), [detail.responseHeaders]);
@@ -200,7 +200,7 @@ function ResponsePane({ detail }: { detail: FlowDetail }) {
       </div>
     </>
   );
-}
+});
 
 function pathOf(url: string): string {
   try {

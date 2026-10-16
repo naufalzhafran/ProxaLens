@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react";
-import { forwardRef, useState } from "react";
+import { forwardRef, memo, useState } from "react";
 import { METHODS, STATUS_CLASSES } from "../lib/filter";
 import { useFlows } from "../state/flows";
 import { button, ContextMenu, type MenuEntry } from "./ui";
@@ -15,7 +15,8 @@ const HELP =
 
 const statusLabel = (c: string) => (c === "error" ? "Errors" : c);
 
-export const FilterBar = forwardRef<HTMLInputElement>(function FilterBar(_, ref) {
+// Memoised so dragging a pane divider doesn't re-render it.
+export const FilterBar = memo(forwardRef<HTMLInputElement>(function FilterBar(_, ref) {
   const filter = useFlows((s) => s.filter);
   const setFilter = useFlows((s) => s.setFilter);
   const methods = useFlows((s) => s.methods);
@@ -64,7 +65,7 @@ export const FilterBar = forwardRef<HTMLInputElement>(function FilterBar(_, ref)
       {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </div>
   );
-});
+}));
 
 /** Check items that toggle in place, plus a "Show All" reset when any is on. */
 function toggles<T extends string>(all: readonly T[], on: T[], toggle: (v: T) => void, label: (v: T) => string): MenuEntry[] {

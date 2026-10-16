@@ -289,6 +289,65 @@ export function ContextMenu({
 }
 
 /**
+ * The drawn line of a drag handle: accent while dragged, and on hover after a
+ * short delay so sweeping the pointer across a divider doesn't flash it.
+ */
+export const separatorLine =
+  "transition-colors duration-100 hover:bg-accent hover:delay-150 data-active:bg-accent data-active:delay-0";
+
+/**
+ * Tracks a primary-button drag from `e`, calling `onMove` with the pointer's
+ * offset along `axis` at most once per frame and `onEnd` when the button is
+ * released, the drag is cancelled or the window loses focus. Once the
+ * pointer moves, the whole page shows the resize cursor and nothing else
+ * reacts to hover; a click that doesn't move still reaches the handle, so its
+ * double-click works.
+ * Returns false (and does nothing) for any other button.
+ */
+export function startDrag(
+  e: React.PointerEvent,
+  axis: "x" | "y",
+  onMove: (delta: number) => void,
+  onEnd: () => void,
+): boolean {
+  if (e.button !== 0) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  const at = (ev: PointerEvent | React.PointerEvent) => (axis === "x" ? ev.clientX : ev.clientY);
+  const start = at(e);
+  let delta = 0;
+  let frame = 0;
+  const root = document.documentElement;
+
+  const flush = () => {
+    frame = 0;
+    onMove(delta);
+  };
+  const move = (ev: PointerEvent) => {
+    delta = at(ev) - start;
+    if (Math.abs(delta) >= 2) root.dataset.resizing = axis;
+    if (!frame) frame = requestAnimationFrame(flush);
+  };
+  const end = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    window.removeEventListener("blur", end);
+    if (frame) {
+      cancelAnimationFrame(frame);
+      flush();
+    }
+    delete root.dataset.resizing;
+    onEnd();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+  window.addEventListener("blur", end);
+  return true;
+}
+
+/**
  * A draggable divider that resizes the element before it. `fit` shrinks the
  * stored size to what currently fits; the returned size is the fitted one.
  */
@@ -309,41 +368,52 @@ export function useResizable(
     }
   });
 
+  const [active, setActive] = useState(false);
   const shown = fit(size);
 
-  function onMouseDown(e: React.MouseEvent) {
-    e.preventDefault();
-    const start = axis === "x" ? e.clientX : e.clientY;
+  function save(value: number | null) {
+    try {
+      if (value === null) localStorage.removeItem(storageKey);
+      else localStorage.setItem(storageKey, String(value));
+    } catch {
+      /* not persisted */
+    }
+  }
+
+  function onPointerDown(e: React.PointerEvent) {
     // Drag from what is on screen, not from a stored size that didn't fit.
     const startSize = shown;
     let latest = startSize;
-    const move = (ev: MouseEvent) => {
-      const delta = (axis === "x" ? ev.clientX : ev.clientY) - start;
-      latest = fit(Math.min(max, Math.max(min, startSize + delta)));
-      setSize(latest);
-    };
-    const up = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-      try {
-        localStorage.setItem(storageKey, String(latest));
-      } catch {
-        /* not persisted */
-      }
-    };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    const started = startDrag(
+      e,
+      axis,
+      (delta) => setSize((latest = fit(Math.min(max, Math.max(min, startSize + delta))))),
+      () => {
+        setActive(false);
+        save(latest);
+      },
+    );
+    if (started) setActive(true);
   }
 
   const handle = (
     <div
       role="separator"
       aria-orientation={axis === "x" ? "vertical" : "horizontal"}
-      onMouseDown={onMouseDown}
-      className={`shrink-0 bg-line hover:bg-accent ${
+      title="Drag to resize; double-click to reset"
+      onPointerDown={onPointerDown}
+      onDoubleClick={() => {
+        setSize(initial);
+        save(null);
+      }}
+      data-active={active || undefined}
+      className={`${separatorLine} relative z-10 shrink-0 bg-line ${
         axis === "x" ? "w-px cursor-col-resize px-px" : "h-px cursor-row-resize py-px"
       }`}
-    />
+    >
+      {/* Invisible grab area wider than the drawn line. */}
+      <span className={`absolute ${axis === "x" ? "inset-y-0 -inset-x-1" : "inset-x-0 -inset-y-1"}`} />
+    </div>
   );
   return { size: shown, handle };
 }

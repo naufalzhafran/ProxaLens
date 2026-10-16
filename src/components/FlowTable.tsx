@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { api, type FlowMeta } from "../api";
@@ -11,7 +11,7 @@ import { formatBytes, formatDuration, formatTime, shortContentType, statusColor 
 import { useColumns, type ColumnKey, type Sort } from "../state/columns";
 import { useFlows } from "../state/flows";
 import { useUi } from "../state/ui";
-import { ContextMenu, contextMenuKey, type MenuEntry } from "./ui";
+import { ContextMenu, contextMenuKey, separatorLine, startDrag, type MenuEntry } from "./ui";
 
 const ROW_HEIGHT = 24;
 const HEADER_HEIGHT = 24;
@@ -109,7 +109,8 @@ export function sortRows(rows: number[], byId: Record<number, FlowMeta>, sort: S
   return keyed.map(([id]) => id);
 }
 
-export function FlowTable() {
+/** Memoised so dragging a pane divider doesn't re-render the table. */
+export const FlowTable = memo(function FlowTable() {
   const order = useFlows((s) => s.order);
   const byId = useFlows((s) => s.byId);
   const filter = useFlows((s) => s.filter);
@@ -300,7 +301,7 @@ export function FlowTable() {
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items()} onClose={() => setMenu(null)} />}
     </div>
   );
-}
+});
 
 /** Lets a cell's content truncate inside its grid track. */
 function Cell({ children }: { children: React.ReactNode }) {
@@ -308,25 +309,17 @@ function Cell({ children }: { children: React.ReactNode }) {
 }
 
 function HeaderCell({ column, sort }: { column: Column; sort: Sort | null }) {
-  const resizing = useRef(false);
+  const [active, setActive] = useState(false);
 
-  function startResize(e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    resizing.current = true;
-    const cell = e.currentTarget.parentElement!;
-    const start = e.clientX;
-    const startWidth = cell.getBoundingClientRect().width;
-    const move = (ev: MouseEvent) =>
-      useColumns.getState().setWidth(column.key, Math.max(column.min, startWidth + ev.clientX - start));
-    const up = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-      // The click that ends a drag mustn't also sort.
-      setTimeout(() => (resizing.current = false));
-    };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+  function startResize(e: React.PointerEvent) {
+    const startWidth = e.currentTarget.parentElement!.getBoundingClientRect().width;
+    const started = startDrag(
+      e,
+      "x",
+      (delta) => useColumns.getState().setWidth(column.key, Math.max(column.min, startWidth + delta)),
+      () => setActive(false),
+    );
+    if (started) setActive(true);
   }
 
   return (
@@ -334,19 +327,26 @@ function HeaderCell({ column, sort }: { column: Column; sort: Sort | null }) {
       <button
         className={`flex h-full min-w-0 flex-1 items-center gap-0.5 uppercase ${column.right ? "justify-end" : ""} ${sort ? "text-ink" : ""}`}
         aria-sort={sort ? (sort.desc ? "descending" : "ascending") : undefined}
-        onClick={() => !resizing.current && useColumns.getState().cycleSort(column.key)}
+        onClick={() => useColumns.getState().cycleSort(column.key)}
       >
         <span className="truncate">{column.label}</span>
         {sort && (sort.desc ? <ArrowDown size={10} className="shrink-0" /> : <ArrowUp size={10} className="shrink-0" />)}
       </button>
+      {/* A 10px grab area centred on a 1px line in the middle of the column gap. */}
       <div
         role="separator"
         aria-orientation="vertical"
         aria-label={`Resize ${column.label}`}
-        onMouseDown={startResize}
+        onPointerDown={startResize}
         onDoubleClick={() => useColumns.getState().setWidth(column.key, null)}
-        className="absolute -right-[5px] top-1 bottom-1 z-10 w-[5px] cursor-col-resize border-r border-line hover:border-accent"
-      />
+        className="group absolute top-0 bottom-0 z-10 w-[10px] cursor-col-resize"
+        style={{ right: -(GAP / 2 + 5) }}
+      >
+        <span
+          data-active={active || undefined}
+          className={`${separatorLine} absolute top-1 bottom-1 left-[5px] w-px bg-line group-hover:bg-accent group-hover:delay-150`}
+        />
+      </div>
     </div>
   );
 }
