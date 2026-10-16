@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 import { forwardRef, memo, useState } from "react";
 import { METHODS, STATUS_CLASSES } from "../lib/filter";
 import { useFlows } from "../state/flows";
@@ -39,10 +39,13 @@ export const FilterBar = memo(forwardRef<HTMLInputElement>(function FilterBar(_,
       : toggles(STATUS_CLASSES, statuses, toggleStatus, statusLabel);
 
   return (
-    <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
+    <div className="flex items-center gap-1.5 border-b border-line px-2 py-1.5">
+      <label className="flex min-w-0 max-w-80 flex-1 items-center gap-1.5 rounded-full bg-ink/5 px-2.5 py-1 text-muted focus-within:ring-2 focus-within:ring-accent/40">
+      <Search size={12} className="shrink-0" aria-hidden />
       <input
         ref={ref}
-        className="min-w-0 max-w-80 flex-1 rounded-ds bg-ink/6 px-2.5 py-1 font-mono text-xs placeholder:text-muted"
+        aria-label="Filter flows"
+        className="min-w-0 flex-1 bg-transparent font-mono text-xs text-ink outline-none placeholder:text-muted"
         placeholder="Filter (⌘F)  e.g. m:post s:4xx api"
         title={HELP}
         spellCheck={false}
@@ -50,10 +53,11 @@ export const FilterBar = memo(forwardRef<HTMLInputElement>(function FilterBar(_,
         onChange={(e) => setFilter(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && setFilter("")}
       />
+      </label>
       <MenuButton label="Method" active={methods} onClick={(e) => showMenu(e, "method")} />
       <MenuButton label="Status" active={statuses.map(statusLabel)} onClick={(e) => showMenu(e, "status")} />
       {scope && (
-        <span className="ml-auto flex min-w-0 shrink items-center gap-1 rounded-full bg-select px-2 py-0.5 text-[11px] font-medium">
+        <span className="ml-auto flex min-w-0 shrink items-center gap-1 rounded-full bg-accent/14 px-2 py-0.5 text-[11px] font-medium text-accent">
           <span className="truncate" title={scope.value}>
             {{ domain: "Domain", host: "Host", app: "App" }[scope.kind]}: {scope.value}
           </span>
@@ -81,7 +85,7 @@ function MenuButton({ label, active, onClick }: { label: string; active: string[
   const text = active.length === 0 ? label : active.length === 1 ? `${label}: ${active[0]}` : `${label} · ${active.length}`;
   return (
     <button
-      className={`${button} flex shrink-0 items-center gap-1 ${active.length ? "bg-select! text-ink" : ""}`}
+      className={`${button} flex shrink-0 items-center gap-1 rounded-full! ${active.length ? "bg-accent/14! text-accent" : ""}`}
       aria-haspopup="menu"
       title={active.length ? active.join(", ") : undefined}
       onClick={onClick}

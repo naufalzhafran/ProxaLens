@@ -1,11 +1,12 @@
 // Left pane: all traffic, pinned domains, and a domain → host tree.
 import { memo, useMemo, useState } from "react";
-import { ChevronRight, Pin } from "lucide-react";
+import { ChevronRight, Globe, Layers, Pin } from "lucide-react";
 import type { FlowMeta } from "../api";
 import type { Scope } from "../lib/filter";
+import { hueFor } from "../lib/format";
 import { baseDomain } from "../lib/http";
 import { useFlows } from "../state/flows";
-import { ContextMenu, contextMenuKey, type MenuEntry } from "./ui";
+import { ContextMenu, contextMenuKey, Tile, type MenuEntry } from "./ui";
 
 interface DomainGroup {
   domain: string;
@@ -74,8 +75,18 @@ export const Sidebar = memo(function Sidebar() {
     : [];
 
   return (
-    <nav aria-label="Traffic" onKeyDown={onNavKeyDown} className="flex min-h-0 flex-1 flex-col overflow-auto py-2 text-xs">
-      <Row selected={isSelected(null)} onClick={() => setScope(null)} label="All traffic" count={order.length} />
+    <nav aria-label="Traffic" onKeyDown={onNavKeyDown} className="flex min-h-0 flex-1 flex-col gap-px overflow-auto px-1.5 py-2 text-xs">
+      <Row
+        icon={
+          <Tile hue="violet">
+            <Layers size={11} strokeWidth={2.5} />
+          </Tile>
+        }
+        selected={isSelected(null)}
+        onClick={() => setScope(null)}
+        label="All traffic"
+        count={order.length}
+      />
 
       {pinned.length > 0 && (
         <>
@@ -83,7 +94,11 @@ export const Sidebar = memo(function Sidebar() {
           {pinned.map((p) => (
             <Row
               key={p}
-              icon={<Pin size={11} className="shrink-0" aria-label="Pinned" />}
+              icon={
+                <Tile hue="pink">
+                  <Pin size={10} strokeWidth={2.5} />
+                </Tile>
+              }
               label={p}
               count={counts.get(p)}
               selected={isSelected({ kind: "domain", value: p })}
@@ -100,6 +115,7 @@ export const Sidebar = memo(function Sidebar() {
           {apps.map(([app, count]) => (
             <Row
               key={app}
+              icon={<Tile hue={hueFor(app)}>{app.charAt(0).toUpperCase()}</Tile>}
               label={app}
               count={count}
               selected={isSelected({ kind: "app", value: app })}
@@ -117,6 +133,11 @@ export const Sidebar = memo(function Sidebar() {
         return (
           <div key={g.domain}>
             <Row
+              icon={
+                <Tile hue={hueFor(g.domain)}>
+                  <Globe size={11} strokeWidth={2.5} />
+                </Tile>
+              }
               label={g.domain}
               count={g.count}
               caret={single ? undefined : open}
@@ -131,6 +152,7 @@ export const Sidebar = memo(function Sidebar() {
                 <Row
                   key={host}
                   indent
+                  icon={<Tile small hue={hueFor(g.domain)}>{null}</Tile>}
                   label={host}
                   count={count}
                   selected={isSelected({ kind: "host", value: host })}
@@ -148,7 +170,7 @@ export const Sidebar = memo(function Sidebar() {
 
 function Heading({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="mt-3 mb-0.5 px-3 text-[11px] font-semibold uppercase tracking-[0.04em] text-muted">
+    <h3 className="mt-4 mb-1 px-2.5 text-[11px] font-semibold text-muted">
       {children}
     </h3>
   );
@@ -177,14 +199,14 @@ export function Row({
 }) {
   return (
     <div
-      className={`mx-1 flex items-center rounded-md ${indent ? "pl-5" : ""} ${
-        selected ? "bg-select font-semibold text-ink" : "hover:bg-ink/6"
+      className={`flex items-center rounded-lg transition-colors ${indent ? "pl-5" : ""} ${
+        selected ? "bg-accent font-medium text-on-accent shadow-thumb" : "hover:bg-ink/6"
       }`}
     >
       {caret !== undefined ? (
         <button
           tabIndex={-1}
-          className="flex w-5 shrink-0 items-center justify-center self-stretch text-muted"
+          className={`flex w-5 shrink-0 items-center justify-center self-stretch ${selected ? "" : "text-muted"}`}
           aria-label={caret ? `Collapse ${label}` : `Expand ${label}`}
           onClick={onCaret}
         >
@@ -212,11 +234,19 @@ export function Row({
             onCaret?.();
           }
         }}
-        className="flex min-w-0 flex-1 cursor-default items-center gap-1 py-0.5 pr-2 text-left"
+        className="flex min-w-0 flex-1 cursor-default items-center gap-2 py-1 pr-2 text-left"
       >
         {icon}
         <span className="flex-1 truncate">{label}</span>
-        {count !== undefined && <span className="font-normal text-muted tabular-nums">{count}</span>}
+        {count !== undefined && (
+          <span
+            className={`rounded-full px-1.5 text-[11px] font-normal tabular-nums ${
+              selected ? "bg-on-accent/20" : "text-muted"
+            }`}
+          >
+            {count}
+          </span>
+        )}
       </button>
     </div>
   );

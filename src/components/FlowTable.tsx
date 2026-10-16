@@ -7,16 +7,18 @@ import { copy } from "../lib/clipboard";
 import { formatCurl } from "../lib/curl";
 import { buildPredicate } from "../lib/filter";
 import { baseDomain } from "../lib/http";
-import { formatBytes, formatDuration, formatTime, shortContentType, statusColor } from "../lib/format";
+import { formatBytes, formatDuration, formatTime, methodHue, shortContentType, statusColor } from "../lib/format";
 import { useColumns, type ColumnKey, type Sort } from "../state/columns";
 import { useFlows } from "../state/flows";
 import { useUi } from "../state/ui";
-import { ContextMenu, contextMenuKey, separatorLine, startDrag, type MenuEntry } from "./ui";
+import { ContextMenu, contextMenuKey, HUE_BADGE, separatorLine, startDrag, type MenuEntry } from "./ui";
 
 const ROW_HEIGHT = 24;
 const HEADER_HEIGHT = 24;
 const GAP = 6;
 const PAD_X = 12;
+/** Rows sit this far in from the table edges, so the selection reads as a pill. */
+const INSET = 4;
 
 interface Column {
   key: ColumnKey;
@@ -48,7 +50,13 @@ export const COLUMNS: Column[] = [
   },
   {
     key: "method", label: "Method", track: "60px", min: 44, value: (f) => f.method,
-    cell: (f) => <span className="truncate font-semibold">{f.method}</span>,
+    cell: (f) => (
+      <span className="flex">
+        <span data-badge className={`truncate rounded px-1 text-[11px] leading-4 font-semibold ${HUE_BADGE[methodHue(f.method)]}`}>
+          {f.method}
+        </span>
+      </span>
+    ),
   },
   {
     key: "status", label: "Status", track: "60px", min: 48, value: (f) => f.status ?? -1,
@@ -134,6 +142,7 @@ export const FlowTable = memo(function FlowTable() {
     [order, byId, predicate, sort],
   );
   const selected = useMemo(() => new Set(selection), [selection]);
+  const tally = useMemo(() => tallyStatuses(rows, byId), [rows, byId]);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
 
@@ -248,7 +257,7 @@ export const FlowTable = memo(function FlowTable() {
             style={{ ...grid, height: HEADER_HEIGHT }}
             onContextMenu={onHeaderMenu}
             title="Click to sort; drag an edge to resize; right-click to choose columns"
-            className="sticky top-0 z-10 grid items-center border-b border-line bg-panel text-[11px] font-semibold uppercase tracking-[0.04em] text-muted"
+            className="sticky top-0 z-10 grid items-center border-b border-line bg-panel text-[11px] font-medium text-muted"
           >
             {columns.map((c) => (
               <HeaderCell key={c.key} column={c} sort={sort?.key === c.key ? sort : null} />
@@ -269,13 +278,14 @@ export const FlowTable = memo(function FlowTable() {
                     style={{
                       position: "absolute",
                       top: 0,
-                      left: 0,
-                      right: 0,
+                      left: INSET,
+                      right: INSET,
                       height: ROW_HEIGHT,
                       transform: `translateY(${v.start - HEADER_HEIGHT}px)`,
                       ...grid,
+                      paddingInline: PAD_X - INSET,
                     }}
-                    className={`grid cursor-default items-center font-mono text-xs ${rowClass(f, sel, v.index)}`}
+                    className={`grid cursor-default items-center rounded-md font-mono text-xs ${rowClass(f, sel, v.index)}`}
                   >
                     {columns.map((c) => (
                       <Cell key={c.key}>{c.cell(f, sel)}</Cell>
@@ -294,14 +304,47 @@ export const FlowTable = memo(function FlowTable() {
           </p>
         )}
       </div>
-      <div className="border-t border-line px-3 py-1 text-[11px] text-muted">
-        {rows.length === order.length ? `${order.length} flows` : `${rows.length} of ${order.length} flows`}
-        {selection.length > 1 && ` · ${selection.length} selected`}
+      <div className="flex items-center gap-3 border-t border-line px-3 py-1 text-[11px] text-muted">
+        <span>
+          {rows.length === order.length ? `${order.length} flows` : `${rows.length} of ${order.length} flows`}
+          {selection.length > 1 && ` · ${selection.length} selected`}
+        </span>
+        <span className="ml-auto flex items-center gap-3 tabular-nums">
+          <Tally dot="bg-st-ok" label="2xx" n={tally.ok} />
+          <Tally dot="bg-st-redirect" label="3xx" n={tally.redirect} />
+          <Tally dot="bg-st-client" label="4xx" n={tally.client} />
+          <Tally dot="bg-st-server" label="5xx & errors" n={tally.server} />
+        </span>
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items()} onClose={() => setMenu(null)} />}
     </div>
   );
 });
+
+/** Shown flows by status class, for the footer; failed and blocked count as errors. */
+export function tallyStatuses(rows: number[], byId: Record<number, FlowMeta>) {
+  const t = { ok: 0, redirect: 0, client: 0, server: 0 };
+  for (const id of rows) {
+    const f = byId[id];
+    if (f.state === "failed" || f.state === "blocked") t.server++;
+    else if (f.status === null) continue;
+    else if (f.status >= 500) t.server++;
+    else if (f.status >= 400) t.client++;
+    else if (f.status >= 300) t.redirect++;
+    else t.ok++;
+  }
+  return t;
+}
+
+function Tally({ dot, label, n }: { dot: string; label: string; n: number }) {
+  return (
+    <span className="flex items-center gap-1.5" title={`${n} ${label}`}>
+      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+      <span className="text-ink">{n}</span>
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+}
 
 /** Lets a cell's content truncate inside its grid track. */
 function Cell({ children }: { children: React.ReactNode }) {
@@ -325,7 +368,7 @@ function HeaderCell({ column, sort }: { column: Column; sort: Sort | null }) {
   return (
     <div className="relative flex h-full min-w-0 items-center">
       <button
-        className={`flex h-full min-w-0 flex-1 items-center gap-0.5 uppercase ${column.right ? "justify-end" : ""} ${sort ? "text-ink" : ""}`}
+        className={`flex h-full min-w-0 flex-1 items-center gap-0.5 ${column.right ? "justify-end" : ""} ${sort ? "text-ink" : ""}`}
         aria-sort={sort ? (sort.desc ? "descending" : "ascending") : undefined}
         onClick={() => useColumns.getState().cycleSort(column.key)}
       >
@@ -385,13 +428,13 @@ function statusLabel(f: FlowMeta): string {
 }
 
 function rowClass(f: FlowMeta, selected: boolean, index: number): string {
-  if (selected) return "bg-select text-ink";
+  if (selected) return "row-sel bg-accent text-on-accent";
   if (f.state === "failed" || f.state === "blocked")
     return "bg-st-server/8 text-st-server";
   if (f.state === "tunnel") return "text-muted italic";
   if (f.state === "paused") return "bg-st-client/10 text-st-client";
   if (f.state === "inProgress") return "text-muted";
-  return index % 2 ? "bg-surface" : "";
+  return index % 2 ? "bg-ink/[0.03] hover:bg-ink/6" : "hover:bg-ink/5";
 }
 
 /** Context-menu entries for one flow. Bodies are fetched on demand. */

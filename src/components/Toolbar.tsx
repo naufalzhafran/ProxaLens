@@ -21,7 +21,8 @@ import { clearFlows, files, visibleIds } from "../lib/actions";
 import { activeRules } from "../lib/rules";
 import { emptyDraft, useLayout, useSettings, useTools, useUi } from "../state/ui";
 import { THROTTLE_PRESETS } from "./SettingsDialog";
-import { button, ContextMenu, IconButton, Popover, primaryButton, useAnchor, type MenuEntry } from "./ui";
+import { button, ContextMenu, HUE_TEXT, IconButton, Popover, primaryButton, useAnchor, type MenuEntry } from "./ui";
+import type { Hue } from "../lib/format";
 
 interface Props {
   status: Status | null;
@@ -113,21 +114,21 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
   const scriptCount = scripts.filter((s) => s.enabled).length;
 
   return (
-    <div className="flex items-center gap-1.5 border-b border-line bg-panel px-3 py-2">
+    <div className="flex items-center gap-1.5 border-b border-line bg-panel px-3 py-2.5">
       <div
         role="group"
         aria-label="Recording"
-        className="relative grid shrink-0 grid-cols-2 rounded-lg bg-ink/6 p-0.5 text-xs font-medium"
+        className="relative grid shrink-0 grid-cols-2 rounded-full bg-ink/6 p-0.5 text-xs font-medium"
       >
         {/* The thumb slides under whichever segment is on. */}
         <span
           aria-hidden
-          className={`absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-md transition-[translate,background-color,box-shadow] duration-200 ease-out motion-reduce:transition-none ${
-            recording ? "translate-x-0 bg-accent" : "translate-x-full bg-panel ring-1 ring-line"
+          className={`absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-full shadow-thumb transition-[translate,background-color,box-shadow] duration-200 ease-out motion-reduce:transition-none ${
+            recording ? "translate-x-0 bg-accent" : "translate-x-full bg-panel"
           } ${status ? "" : "opacity-50"}`}
         />
         <button
-          className={`relative flex items-center justify-center gap-1.5 rounded-md px-2.5 py-0.5 transition-colors duration-200 disabled:opacity-50 ${recording ? "text-on-accent" : "text-muted hover:text-ink"}`}
+          className={`relative flex items-center justify-center gap-1.5 rounded-full px-2.5 py-0.5 transition-colors duration-200 disabled:opacity-50 ${recording ? "text-on-accent" : "text-muted hover:text-ink"}`}
           disabled={!status}
           aria-pressed={recording}
           title="Record: list new traffic as it arrives"
@@ -137,7 +138,7 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
           <span className="hidden lg:inline">Recording</span>
         </button>
         <button
-          className={`relative flex items-center justify-center gap-1.5 rounded-md px-2.5 py-0.5 transition-colors duration-200 disabled:opacity-50 ${recording ? "text-muted hover:text-ink" : "text-st-client"}`}
+          className={`relative flex items-center justify-center gap-1.5 rounded-full px-2.5 py-0.5 transition-colors duration-200 disabled:opacity-50 ${recording ? "text-muted hover:text-ink" : "text-st-client"}`}
           disabled={!status}
           aria-pressed={!recording}
           title="Pause recording: traffic still flows and rules still apply, but nothing new is listed"
@@ -174,12 +175,12 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
 
       <Divider />
       <button className={`${button} flex items-center gap-1`} aria-haspopup="menu" onClick={(e) => showMenu(e, fileMenu)}>
-        <FolderOpen size={ICON} />
+        <FolderOpen size={ICON} className={HUE_TEXT.teal} />
         File
         <ChevronDown size={12} />
       </button>
       <button className={`${button} flex items-center gap-1`} title="Compose a new request (⌘N)" onClick={() => openComposer(emptyDraft)}>
-        <Send size={ICON} />
+        <Send size={ICON} className={HUE_TEXT.blue} />
         <span className="hidden lg:inline">Compose</span>
       </button>
 
@@ -191,7 +192,7 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
         title="Network throttle"
         onClick={(e) => showMenu(e, throttleMenu)}
       >
-        <Gauge size={ICON} />
+        <Gauge size={ICON} className={throttleName ? "" : HUE_TEXT.orange} />
         {throttleName ?? <span className="hidden lg:inline">Throttle</span>}
         <ChevronDown size={12} />
       </button>
@@ -200,21 +201,22 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
         title={`Map Local, Map Remote, Rewrite, Block, Breakpoints (⌘L)${active.length ? `\nActive: ${active.map(([k, n]) => `${n} ${k}`).join(", ")}` : ""}`}
         onClick={() => openRules({ tab: "mapLocal" })}
       >
-        <Workflow size={ICON} />
+        <Workflow size={ICON} className={HUE_TEXT.violet} />
         Rules
-        <Badge n={ruleCount} />
+        <Badge n={ruleCount} hue="violet" />
       </button>
       <button
         className={`${button} flex items-center gap-1`}
         title={`JavaScript onRequest / onResponse hooks (⌘J)${scriptCount ? `\n${scriptCount} enabled` : ""}`}
         onClick={() => openScripts(true)}
       >
-        <Code size={ICON} />
+        <Code size={ICON} className={HUE_TEXT.green} />
         Scripts
-        <Badge n={scriptCount} />
+        <Badge n={scriptCount} hue="green" />
       </button>
 
       <div className="ml-auto flex items-center gap-1.5">
+        <Cluster>
         <IconButton
           label={sidebarHidden ? "Show sidebar (⌘B)" : "Hide sidebar (⌘B)"}
           className={sidebarHidden ? "" : "text-ink"}
@@ -228,7 +230,8 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
         >
           {inspector === "bottom" ? <PanelRight size={ICON} /> : <PanelBottom size={ICON} />}
         </IconButton>
-        <Divider />
+        </Cluster>
+        <Cluster>
         <IconButton label="Devices: phones, tablets and Simulators" onClick={() => openDevices(true)}>
           <Smartphone size={ICON} />
         </IconButton>
@@ -238,6 +241,7 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
         <IconButton label="Clear all flows (⌘K)" onClick={() => clearFlows().catch((e) => onError(errorMessage(e)))}>
           <Trash2 size={ICON} />
         </IconButton>
+        </Cluster>
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       {details.at && status && (
@@ -265,9 +269,26 @@ function Divider() {
   return <div className="mx-0.5 h-5 w-px shrink-0 bg-line" />;
 }
 
-function Badge({ n }: { n: number }) {
+/** Icon buttons sharing one rounded pill, as a group. */
+function Cluster({ children }: { children: React.ReactNode }) {
+  return <div className="flex items-center gap-0.5 rounded-full bg-ink/5 p-0.5">{children}</div>;
+}
+
+const BADGE: Record<Hue, string> = {
+  blue: "bg-hue-blue",
+  green: "bg-hue-green",
+  pink: "bg-hue-pink",
+  orange: "bg-hue-orange",
+  yellow: "bg-hue-yellow",
+  teal: "bg-hue-teal",
+  violet: "bg-hue-violet",
+  red: "bg-hue-red",
+  gray: "bg-hue-gray",
+};
+
+function Badge({ n, hue }: { n: number; hue: Hue }) {
   if (!n) return null;
-  return <span className="rounded-full bg-accent px-1.5 text-[10px] font-semibold leading-4 text-on-accent">{n}</span>;
+  return <span className={`rounded-full px-1.5 text-[10px] font-semibold leading-4 text-on-hue ${BADGE[hue]}`}>{n}</span>;
 }
 
 /** Address, plus a warning when HTTPS can't be decrypted; opens the details. */
@@ -282,7 +303,7 @@ function StatusPill({ status, onClick }: { status: Status | null; onClick: (e: R
       disabled={!status}
       onClick={onClick}
     >
-      <span className={`h-2 w-2 shrink-0 rounded-full ${running ? "bg-accent" : "bg-muted"}`} />
+      <span className={`h-2 w-2 shrink-0 rounded-full ${running ? "bg-st-ok shadow-[0_0_0_3px] shadow-st-ok/20" : "bg-muted"}`} />
       <span className="truncate">{running ? status?.addr : "Stopped"}</span>
       {untrusted && <ShieldAlert size={ICON} className="shrink-0 text-st-client" aria-label="Certificate not trusted" />}
       <ChevronDown size={12} className="shrink-0" />

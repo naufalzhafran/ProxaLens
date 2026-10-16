@@ -37,3 +37,29 @@ export function shortContentType(ct: string | null): string {
   const sub = (mime.split("/")[1] ?? mime).replace(/^x-/, "");
   return sub.endsWith("+json") ? "json" : sub.split("+")[0];
 }
+
+export type Hue = "blue" | "green" | "pink" | "orange" | "yellow" | "teal" | "violet" | "red" | "gray";
+
+const METHOD_HUES: Record<string, Hue> = {
+  GET: "blue",
+  POST: "green",
+  PUT: "orange",
+  PATCH: "yellow",
+  DELETE: "red",
+  CONNECT: "violet",
+};
+
+/** The badge colour for an HTTP method; anything unusual is gray. */
+export function methodHue(method: string): Hue {
+  return METHOD_HUES[method.toUpperCase()] ?? "gray";
+}
+
+/** Hues for names, gray left out so a tile never looks disabled. */
+const NAME_HUES: Hue[] = ["blue", "green", "pink", "orange", "yellow", "teal", "violet", "red"];
+
+/** A stable hue for a name (an app or domain), so its tile keeps its colour. */
+export function hueFor(name: string): Hue {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  return NAME_HUES[Math.abs(h) % NAME_HUES.length];
+}

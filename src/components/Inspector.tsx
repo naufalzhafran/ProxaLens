@@ -5,7 +5,7 @@ import { api, errorMessage, type BodyView, type FlowDetail, type WsMessageView }
 import { editAndRepeat, repeat } from "../lib/actions";
 import { copy } from "../lib/clipboard";
 import { formatCurl } from "../lib/curl";
-import { formatBytes, formatDuration, formatTime, statusColor } from "../lib/format";
+import { formatBytes, formatDuration, formatTime, methodHue, statusColor } from "../lib/format";
 import { applyMatches, findMatches, langFor, MATCH_LIMIT, tokenize, type Lang } from "../lib/highlight";
 import {
   bodyBytes,
@@ -22,7 +22,9 @@ import {
 } from "../lib/http";
 import { useFlows } from "../state/flows";
 import { JsonTree } from "./JsonTree";
-import { button, Chip, ContextMenu, input, Tabs, useResizable } from "./ui";
+import { button, Chip, ContextMenu, HUE_BADGE, input, Tabs, useResizable } from "./ui";
+
+const pill = `${button} rounded-full! px-3`;
 
 /** `sideBySide` puts request and response next to each other, for a wide, short pane. */
 export const Inspector = memo(function Inspector({ sideBySide = false }: { sideBySide?: boolean }) {
@@ -58,39 +60,39 @@ export const Inspector = memo(function Inspector({ sideBySide = false }: { sideB
   const m = detail.meta;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-line px-3 py-2">
+      <div className="border-b border-line bg-panel px-3 py-2.5">
         <div className="selectable font-mono text-xs">
           <div className="line-clamp-3 break-all" title={m.url}>
-            <span className="font-semibold">{m.method}</span>{" "}
+            <span className={`mr-1 rounded px-1 py-px text-[11px] font-semibold ${HUE_BADGE[methodHue(m.method)]}`}>{m.method}</span>{" "}
             <span className={statusColor(m.status)}>{m.status ?? (m.state === "failed" ? "ERR" : m.state === "paused" ? "paused" : "…")}</span> {m.url}
           </div>
           {m.error && <div className="mt-1 text-st-server">{m.error}</div>}
           {m.tags.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
               {m.tags.map((t) => (
-                <span key={t} className="rounded bg-select px-1.5 text-[11px] text-ink">
+                <span key={t} className="rounded-full bg-accent/14 px-2 text-[11px] font-medium text-accent">
                   {t}
                 </span>
               ))}
             </div>
           )}
         </div>
-        <div className="mt-2 flex flex-wrap gap-1">
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
           {m.state !== "tunnel" && m.state !== "webSocket" && (
             <>
-              <button className={button} title="Send this request again (⌘R)" onClick={() => repeat(m.id)}>
+              <button className={pill} title="Send this request again (⌘R)" onClick={() => repeat(m.id)}>
                 Repeat
               </button>
-              <button className={button} onClick={() => editAndRepeat(m.id)}>
+              <button className={pill} onClick={() => editAndRepeat(m.id)}>
                 Edit and Repeat…
               </button>
             </>
           )}
-          <button className={button} onClick={() => copy(m.url, "URL")}>
+          <button className={pill} onClick={() => copy(m.url, "URL")}>
             Copy URL
           </button>
           <button
-            className={button}
+            className={pill}
             onClick={() => copy(formatCurl(m.method, m.url, detail.requestHeaders, detail.requestBody), "cURL command")}
           >
             Copy cURL
@@ -265,15 +267,15 @@ function CopyRows({ rows, lineLabel }: { rows: CopyRow[]; lineLabel: string }) {
           {rows.map((r, i) => (
             <tr
               key={i}
-              className="group align-top odd:bg-ink/3"
+              className="group border-b border-line/70 align-top last:border-0"
               onContextMenu={(e) => {
                 e.preventDefault();
                 setMenu({ x: e.clientX, y: e.clientY, row: r });
               }}
             >
-              <td className="w-1/3 py-0.5 pr-3 pl-1 break-all text-muted">{r.name}</td>
-              <td className="py-0.5">{r.cell}</td>
-              <td className="w-6 py-0.5 text-right">
+              <td className="w-1/3 py-1 pr-3 pl-1 break-all text-muted">{r.name}</td>
+              <td className="py-1">{r.cell}</td>
+              <td className="w-6 py-1 text-right">
                 <button
                   aria-label={`Copy ${r.name}`}
                   title="Copy value"
@@ -421,12 +423,12 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
           </div>
         )}
         {modes.length > 1 && (
-          <div className="flex rounded-lg bg-ink/6 p-0.5">
+          <div className="flex rounded-full bg-ink/6 p-0.5">
             {modes.map((md) => (
               <button
                 key={md}
                 onClick={() => setPreferred(md)}
-                className={`rounded-md px-2 py-0.5 capitalize ${md === shown ? "bg-accent text-on-accent" : "hover:text-ink"}`}
+                className={`rounded-full px-2.5 py-0.5 capitalize transition-colors ${md === shown ? "bg-panel text-ink shadow-thumb" : "hover:text-ink"}`}
               >
                 {md}
               </button>

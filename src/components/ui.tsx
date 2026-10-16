@@ -1,8 +1,9 @@
 // Small shared UI primitives (Tailwind only).
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { Hue } from "../lib/format";
 
 export const button =
-  "rounded-lg bg-ink/6 px-2.5 py-1 text-xs font-medium hover:bg-ink/10 disabled:opacity-50";
+  "rounded-lg bg-ink/5 px-2.5 py-1 text-xs font-medium transition-colors hover:bg-ink/9 disabled:opacity-50";
 
 /** A square toolbar button showing only an icon; `label` is its name and tooltip. */
 export function IconButton({
@@ -21,7 +22,7 @@ export function IconButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`flex h-[26px] w-[26px] items-center justify-center rounded-lg text-muted hover:bg-ink/8 hover:text-ink ${className}`}
+      className={`flex h-[26px] w-[26px] items-center justify-center rounded-full text-muted transition-colors hover:bg-ink/8 hover:text-ink ${className}`}
     >
       {children}
     </button>
@@ -29,7 +30,7 @@ export function IconButton({
 }
 
 export const primaryButton =
-  "rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:bg-accent/90 disabled:opacity-50";
+  "rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent shadow-thumb transition-colors hover:bg-accent/90 disabled:opacity-50";
 
 export function Chip({
   active,
@@ -72,7 +73,6 @@ export function Tabs<T extends string>({
   return (
     <div
       className="flex items-center gap-1 overflow-x-auto border-b border-line px-2 py-1.5 [scrollbar-width:none]"
-      role="tablist"
       onKeyDown={(e) => {
         const by = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
         if (!by) return;
@@ -83,6 +83,7 @@ export function Tabs<T extends string>({
         e.currentTarget.querySelector<HTMLElement>(`[data-tab="${next.id}"]`)?.focus();
       }}
     >
+      <div role="tablist" className="flex shrink-0 items-center gap-0.5 rounded-full bg-ink/6 p-0.5">
       {tabs.map((t) => (
         <button
           data-tab={t.id}
@@ -91,14 +92,15 @@ export function Tabs<T extends string>({
           role="tab"
           aria-selected={t.id === value}
           onClick={() => onChange(t.id)}
-          className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-0.5 text-xs font-medium ${
-            t.id === value ? "bg-panel text-ink ring-1 ring-line" : "text-muted hover:text-ink"
+          className={`shrink-0 whitespace-nowrap rounded-full px-3 py-0.5 text-xs font-medium transition-colors ${
+            t.id === value ? "bg-panel text-ink shadow-thumb" : "text-muted hover:text-ink"
           }`}
         >
           {t.label}
           {t.badge ? <span className="ml-1 text-[10px] font-normal text-muted">{t.badge}</span> : null}
         </button>
       ))}
+      </div>
       {right && <div className="ml-auto flex items-center gap-1">{right}</div>}
     </div>
   );
@@ -181,7 +183,7 @@ export function Popover({
       role="dialog"
       aria-label={label}
       style={style}
-      className="fixed z-50 w-80 rounded-ds border border-line bg-panel text-xs"
+      className="fixed z-50 w-80 overflow-hidden rounded-xl bg-panel text-xs shadow-float"
     >
       {children}
     </div>
@@ -262,7 +264,7 @@ export function ContextMenu({
       role="menu"
       onKeyDown={onKeyDown}
       style={style}
-      className="fixed z-50 min-w-48 rounded-lg border border-line bg-panel p-1 text-xs"
+      className="fixed z-50 min-w-48 rounded-xl bg-panel/95 p-1 text-xs shadow-float backdrop-blur-xl"
     >
       {items.map((item, i) =>
         item === "separator" ? (
@@ -277,7 +279,7 @@ export function ContextMenu({
               if (!item.keepOpen) onClose();
               item.onSelect();
             }}
-            className="flex w-full items-center rounded-md px-2 py-1 text-left outline-none hover:bg-accent hover:text-on-accent focus:bg-accent focus:text-on-accent disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-inherit"
+            className="flex w-full items-center rounded-lg px-2 py-1 text-left outline-none hover:bg-accent hover:text-on-accent focus:bg-accent focus:text-on-accent disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-inherit"
           >
             {checks && <span className="w-4 shrink-0">{item.checked ? "✓" : ""}</span>}
             {item.label}
@@ -470,7 +472,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-6"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-6 backdrop-blur-[2px]"
       onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}
     >
       <div
@@ -480,7 +482,7 @@ export function Modal({
         aria-label={title}
         tabIndex={-1}
         onKeyDown={trap}
-        className={`flex max-h-full w-full flex-col rounded-xl border border-line bg-panel text-xs outline-none ${
+        className={`flex max-h-full w-full flex-col overflow-hidden rounded-2xl bg-panel text-xs shadow-float outline-none ${
           wide ? "max-w-5xl" : narrow ? "max-w-lg" : "max-w-2xl"
         }`}
       >
@@ -504,4 +506,57 @@ export function Modal({
 }
 
 export const input =
-  "rounded-ds bg-ink/6 px-2 py-1 font-mono text-xs placeholder:text-muted";
+  "rounded-ds bg-ink/5 px-2 py-1 font-mono text-xs placeholder:text-muted";
+
+// Full class names, so Tailwind finds them.
+const TILE: Record<Hue, string> = {
+  blue: "bg-hue-blue",
+  green: "bg-hue-green",
+  pink: "bg-hue-pink",
+  orange: "bg-hue-orange",
+  yellow: "bg-hue-yellow",
+  teal: "bg-hue-teal",
+  violet: "bg-hue-violet",
+  red: "bg-hue-red",
+  gray: "bg-hue-gray",
+};
+
+/** Tinted badge: the hue as text on a faint wash of itself. */
+export const HUE_BADGE: Record<Hue, string> = {
+  blue: "bg-hue-blue/12 text-hue-blue",
+  green: "bg-hue-green/12 text-hue-green",
+  pink: "bg-hue-pink/12 text-hue-pink",
+  orange: "bg-hue-orange/12 text-hue-orange",
+  yellow: "bg-hue-yellow/14 text-hue-yellow",
+  teal: "bg-hue-teal/12 text-hue-teal",
+  violet: "bg-hue-violet/12 text-hue-violet",
+  red: "bg-hue-red/12 text-hue-red",
+  gray: "bg-hue-gray/12 text-hue-gray",
+};
+
+/** The hue as plain text colour, for icons. */
+export const HUE_TEXT: Record<Hue, string> = {
+  blue: "text-hue-blue",
+  green: "text-hue-green",
+  pink: "text-hue-pink",
+  orange: "text-hue-orange",
+  yellow: "text-hue-yellow",
+  teal: "text-hue-teal",
+  violet: "text-hue-violet",
+  red: "text-hue-red",
+  gray: "text-hue-gray",
+};
+
+/** A small solid rounded square holding an icon or a letter, as in macOS sidebars. */
+export function Tile({ hue, children, small }: { hue: Hue; children: React.ReactNode; small?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`flex shrink-0 items-center justify-center font-sans font-semibold text-on-hue ${TILE[hue]} ${
+        small ? "h-3.5 w-3.5 rounded-[4px] text-[8px]" : "h-[18px] w-[18px] rounded-[5px] text-[10px]"
+      }`}
+    >
+      {children}
+    </span>
+  );
+}

@@ -6,49 +6,81 @@
  * bg-accent / text-on-accent, bg-select, and text-st-ok / -redirect / -client /
  * -server for HTTP status. Code views use text-syn-key / -string / -number /
  * -literal, a separate palette so keys and strings never share a hue.
+ *
+ * The hue-* set is categorical colour for sidebar tiles and method badges
+ * (see methodHue / hueFor in lib/format.ts). Each reads as text on bg-panel,
+ * and text-on-hue reads on a solid hue tile.
  */
 @theme {
-  --color-surface: #f4f4f1;
+  --color-surface: #f5f5f7;
   --color-panel: #ffffff;
-  --color-line: #d8d8d2;
-  --color-ink: #1b1c1a;
-  --color-muted: #5b5e58;
-  --color-accent: #0b7466;
+  --color-line: #e4e4ea;
+  --color-ink: #1c1c22;
+  --color-muted: #63636e;
+  --color-accent: #5b5bd6;
   --color-on-accent: #ffffff;
-  --color-select: #d3ebe6;
-  --color-st-ok: #16703d;
-  --color-st-redirect: #1d559f;
-  --color-st-client: #8a5200;
-  --color-st-server: #b3261e;
-  --color-syn-key: #1f5fbf;
-  --color-syn-string: #1d7a35;
-  --color-syn-number: #b35300;
-  --color-syn-literal: #a3238a;
+  --color-select: #ebebfd;
+  --color-st-ok: #15803d;
+  --color-st-redirect: #2563eb;
+  --color-st-client: #b45309;
+  --color-st-server: #dc2626;
+  --color-syn-key: #2563eb;
+  --color-syn-string: #15803d;
+  --color-syn-number: #c2410c;
+  --color-syn-literal: #a21caf;
+
+  --color-hue-blue: #2563eb;
+  --color-hue-green: #15803d;
+  --color-hue-pink: #db2777;
+  --color-hue-orange: #c2410c;
+  --color-hue-yellow: #a16207;
+  --color-hue-teal: #0f766e;
+  --color-hue-violet: #7c3aed;
+  --color-hue-red: #dc2626;
+  --color-hue-gray: #6b7280;
+  --color-on-hue: #ffffff;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 
   --radius-ds: 10px;
+
+  --shadow-float: 0 10px 30px -8px rgb(20 20 40 / 0.22), 0 0 0 1px rgb(20 20 40 / 0.06);
+  --shadow-thumb: 0 1px 3px rgb(20 20 40 / 0.16), 0 0 0 0.5px rgb(20 20 40 / 0.08);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-surface: #1c1d1c;
-    --color-panel: #252726;
-    --color-line: #3a3d3b;
-    --color-ink: #f0f1ee;
-    --color-muted: #a4a8a2;
-    --color-accent: #46c7b2;
-    --color-on-accent: #07201b;
-    --color-select: #1a3d37;
-    --color-st-ok: #62d68f;
-    --color-st-redirect: #8fbaff;
-    --color-st-client: #ffb454;
-    --color-st-server: #ff938a;
+    --color-surface: #1c1c1f;
+    --color-panel: #232327;
+    --color-line: #36363c;
+    --color-ink: #f1f1f4;
+    --color-muted: #a1a1ab;
+    --color-accent: #8d8ef9;
+    --color-on-accent: #11113a;
+    --color-select: #2c2c57;
+    --color-st-ok: #4ade80;
+    --color-st-redirect: #60a5fa;
+    --color-st-client: #fbbf24;
+    --color-st-server: #f87171;
     --color-syn-key: #7fb4ff;
     --color-syn-string: #7ed99a;
     --color-syn-number: #ffad5c;
     --color-syn-literal: #e58ad3;
+
+    --color-hue-blue: #60a5fa;
+    --color-hue-green: #4ade80;
+    --color-hue-pink: #f472b6;
+    --color-hue-orange: #fb923c;
+    --color-hue-yellow: #facc15;
+    --color-hue-teal: #2dd4bf;
+    --color-hue-violet: #a78bfa;
+    --color-hue-red: #f87171;
+    --color-hue-gray: #9ca3af;
+    --color-on-hue: #141418;
+
+    --shadow-float: 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.08);
+    --shadow-thumb: 0 1px 3px rgb(0 0 0 / 0.5), 0 0 0 0.5px rgb(255 255 255 / 0.1);
   }
 }
 
@@ -142,4 +174,17 @@ body {
 }
 .st-none::before {
   display: none;
+}
+
+/*
+ * The selected flow row is solid accent, so its status, muted and badge text
+ * follow the row's colour; the status shape still tells the class apart.
+ */
+.row-sel .st,
+.row-sel .text-muted,
+.row-sel [data-badge] {
+  color: inherit;
+}
+.row-sel [data-badge] {
+  background: rgb(255 255 255 / 0.18);
 }

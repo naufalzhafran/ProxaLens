@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BodyView, FlowMeta } from "../api";
 import { formatCurl, shellQuote } from "./curl";
 import { buildPredicate, compileFilter } from "./filter";
+import { hueFor, methodHue } from "./format";
 import {
   baseDomain,
   bodyKind,
@@ -188,5 +189,21 @@ describe("http helpers", () => {
     expect(baseDomain("www.tokopedia.co.id")).toBe("tokopedia.co.id");
     expect(baseDomain("127.0.0.1")).toBe("127.0.0.1");
     expect(baseDomain("localhost")).toBe("localhost");
+  });
+});
+
+describe("colour helpers", () => {
+  it("gives common methods their own hue and the rest gray", () => {
+    expect(methodHue("GET")).toBe("blue");
+    expect(methodHue("post")).toBe("green");
+    expect(methodHue("DELETE")).toBe("red");
+    expect(methodHue("PROPFIND")).toBe("gray");
+  });
+
+  it("keeps a name's hue stable and never gray", () => {
+    expect(hueFor("github.com")).toBe(hueFor("github.com"));
+    const hues = new Set(["a", "b", "c", "d", "e", "f", "g", "h", "Safari", ""].map(hueFor));
+    expect(hues.has("gray")).toBe(false);
+    expect(hues.size).toBeGreaterThan(3);
   });
 });
