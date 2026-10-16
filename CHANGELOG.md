@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 (2026-10-16)
+
+A fresh, more colorful look.
+
+- A violet accent replaces teal, with retuned light and dark palettes.
+- Sidebar rows have colored icon tiles: apps show their initial, domains a globe, and each name keeps its own color.
+- HTTP methods appear as tinted badges in the flow table and inspector.
+- The selected flow is a solid accent row, and the selected sidebar row a solid pill.
+- The flow table footer tallies the shown flows by status class (2xx, 3xx, 4xx, 5xx and errors).
+- Tabs, body view switches, filters and the recording toggle are rounded pill controls, and toolbar icons are colored by tool.
+- Menus, popovers and dialogs float on soft shadows.
+
 ## 0.2.3 (2026-10-16)
 
 Hotfix for resizing panes and columns.

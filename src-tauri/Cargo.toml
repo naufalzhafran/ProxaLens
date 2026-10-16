@@ -1,6 +1,6 @@
 [package]
 name = "proxalens"
-version = "0.2.3"
+version = "0.3.0"
 description = "Free Proxyman-style HTTP/HTTPS debugging proxy"
 authors = ["Naufal Zhafran"]
 edition = "2024"
