@@ -111,7 +111,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.shiftKey || e.altKey) return;
+      if (!e.metaKey || e.shiftKey || e.altKey || e.repeat) return;
       // Leave shortcuts to the dialog while one is open (setup, breakpoints and
       // the Scripts editor included), so ⌘K can't clear traffic behind it.
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
