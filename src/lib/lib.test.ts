@@ -127,17 +127,22 @@ describe("buildPredicate", () => {
 describe("formatCurl", () => {
   it("omits -X for GET and quotes the URL and headers", () => {
     const cmd = formatCurl("GET", "https://api.example.com/v1/users", [["Accept", "application/json"]], null);
-    expect(cmd).toBe("curl -H 'Accept: application/json' 'https://api.example.com/v1/users'");
+    expect(cmd).toBe("curl -H 'Accept: application/json' --output - 'https://api.example.com/v1/users'");
   });
 
   it("adds method and body", () => {
     const cmd = formatCurl("POST", "https://x.com/u", [["Content-Type", "application/json"], ["content-length", "15"]], text('{"name":"test"}'));
-    expect(cmd).toBe(`curl -X POST -H 'Content-Type: application/json' --data-raw '{"name":"test"}' 'https://x.com/u'`);
+    expect(cmd).toBe(`curl -X POST -H 'Content-Type: application/json' --data-raw '{"name":"test"}' --output - 'https://x.com/u'`);
   });
 
   it("sorts headers and skips an empty body", () => {
     const cmd = formatCurl("DELETE", "https://x.com/1", [["b", "2"], ["A", "1"]], empty);
-    expect(cmd).toBe("curl -X DELETE -H 'A: 1' -H 'b: 2' 'https://x.com/1'");
+    expect(cmd).toBe("curl -X DELETE -H 'A: 1' -H 'b: 2' --output - 'https://x.com/1'");
+  });
+
+  it("drops Accept-Encoding so the response prints uncompressed", () => {
+    const cmd = formatCurl("GET", "https://x.com/", [["Accept-Encoding", "gzip, deflate, br"], ["Accept", "*/*"]], null);
+    expect(cmd).toBe("curl -H 'Accept: */*' --output - 'https://x.com/'");
   });
 
   it("escapes single quotes", () => {

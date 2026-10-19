@@ -1,10 +1,12 @@
 // Copy-as-cURL, ported from httpmon's internal/tui/curl.go. Unlike the
 // original, values are shell-escaped and Content-Length is dropped (curl
-// computes it, and a truncated body would make it wrong). Bodies are the
-// decoded ones the inspector shows.
+// computes it, and a truncated body would make it wrong). Accept-Encoding is
+// dropped too so the server answers uncompressed, and `--output -` makes curl
+// print the response even when it looks binary. Bodies are the decoded ones
+// the inspector shows.
 import type { BodyView } from "../api";
 
-const SKIP = new Set(["content-length"]);
+const SKIP = new Set(["content-length", "accept-encoding"]);
 
 /** Single-quotes `s` for a POSIX shell. */
 export function shellQuote(s: string): string {
@@ -29,6 +31,6 @@ export function formatCurl(
     if (body.text !== null) parts.push("--data-raw", shellQuote(body.text));
     else if (body.base64 !== null) parts.push("--data-binary", `@<(echo ${shellQuote(body.base64)} | base64 -d)`);
   }
-  parts.push(shellQuote(url));
+  parts.push("--output", "-", shellQuote(url));
   return parts.join(" ");
 }
