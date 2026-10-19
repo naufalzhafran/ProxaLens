@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 (2026-10-19)
+
+Hotfix for Copy as cURL and confirmation dialogs.
+
+- Copied cURL commands print the response in a terminal: Accept-Encoding is left out so the server answers uncompressed, and `--output -` stops curl refusing bodies it thinks are binary.
+- Confirmation dialogs no longer stack up. Only one can be open at a time, so Clear or Cancel closes it instead of revealing a stale copy behind it.
+- Holding a ⌘ shortcut no longer repeats it.
+
 ## 0.3.0 (2026-10-16)
 
 A fresh, more colorful look.
