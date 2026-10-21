@@ -1,6 +1,6 @@
-// Which modal is open, plus the flow marked for comparison.
+// Which modal is open.
 import { create } from "zustand";
-import { api, type Rules, type ScriptInfo, type Settings } from "../api";
+import { api, type Rules, type Settings } from "../api";
 import type { RuleKind } from "../lib/rules";
 
 /** The Rules dialog: which tab, and optionally a new rule to start editing. */
@@ -9,7 +9,7 @@ export interface RulesView {
   add?: { id: string } & Record<string, unknown>;
 }
 
-export type SettingsTab = "general" | "ssl" | "block" | "allow" | "throttle" | "protobuf";
+export type SettingsTab = "general" | "ssl" | "block" | "allow" | "throttle";
 
 export interface Draft {
   method: string;
@@ -25,55 +25,38 @@ export const emptyDraft: Draft = { method: "GET", url: "https://", headers: "", 
 
 interface UiState {
   composer: Draft | null;
-  diff: [number, number] | null;
   /** The settings tab to show, or null when closed. */
   settingsTab: SettingsTab | null;
-  compareMark: number | null;
   rules: RulesView | null;
-  scriptsOpen: boolean;
-  openScripts: (open: boolean) => void;
   devicesOpen: boolean;
   openDevices: (open: boolean) => void;
   openRules: (view: RulesView | null) => void;
   openComposer: (d: Draft) => void;
-  openDiff: (a: number, b: number) => void;
   openSettings: (tab: SettingsTab | null) => void;
-  markForCompare: (id: number | null) => void;
   close: () => void;
 }
 
 export const useUi = create<UiState>((set) => ({
   composer: null,
-  diff: null,
   settingsTab: null,
-  compareMark: null,
   rules: null,
-  scriptsOpen: false,
-  openScripts: (scriptsOpen) => set({ scriptsOpen }),
   devicesOpen: false,
   openDevices: (devicesOpen) => set({ devicesOpen }),
   openRules: (rules) => set({ rules }),
   openComposer: (composer) => set({ composer }),
-  openDiff: (a, b) => set({ diff: [a, b], compareMark: null }),
   openSettings: (settingsTab) => set({ settingsTab }),
-  markForCompare: (compareMark) => set({ compareMark }),
-  close: () => set({ composer: null, diff: null, settingsTab: null, rules: null, scriptsOpen: false, devicesOpen: false }),
+  close: () => set({ composer: null, settingsTab: null, rules: null, devicesOpen: false }),
 }));
 
-/** Rules and scripts, cached for the toolbar's "active" badges. */
+/** Rules, cached for the toolbar's "active" badge. */
 export const useTools = create<{
   rules: Rules | null;
-  scripts: ScriptInfo[];
   setRules: (r: Rules) => void;
   refresh: () => Promise<void>;
 }>((set) => ({
   rules: null,
-  scripts: [],
   setRules: (rules) => set({ rules }),
-  refresh: async () => {
-    const [rules, { scripts }] = await Promise.all([api.getRules(), api.listScripts()]);
-    set({ rules, scripts });
-  },
+  refresh: async () => set({ rules: await api.getRules() }),
 }));
 
 /** The engine's settings, cached for the toolbar. */

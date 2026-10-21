@@ -9,10 +9,10 @@ describe("rule helpers", () => {
   });
 
   it("creates rules with unique ids and sensible defaults", () => {
-    const a = newRule("breakpoints", "x");
-    const b = newRule("breakpoints", "x");
+    const a = newRule("mapRemote", "x");
+    const b = newRule("mapRemote", "x");
     expect(a.id).not.toBe(b.id);
-    expect(a).toMatchObject({ enabled: true, url: "x", request: true, response: true });
+    expect(a).toMatchObject({ enabled: true, url: "x", to: "" });
     expect(ruleSummary("mapRemote", { ...newRule("mapRemote"), to: "http://localhost:3000" })).toBe(
       "→ http://localhost:3000",
     );

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   ChevronDown,
-  Code,
   FolderOpen,
   Gauge,
   PanelBottom,
@@ -39,22 +38,12 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
   const details = useAnchor();
   const settings = useSettings((s) => s.settings);
   const rules = useTools((s) => s.rules);
-  const scripts = useTools((s) => s.scripts);
-  const { openComposer, openSettings, openRules, openScripts, openDevices } = useUi.getState();
+  const { openComposer, openSettings, openRules, openDevices } = useUi.getState();
   const { sidebarHidden, inspector, toggleSidebar, toggleInspector } = useLayout();
 
   useEffect(() => {
     useSettings.getState().refresh().catch((e) => onError(errorMessage(e)));
-    // Rules can also change through the MCP server while the app is in the
-    // background, so look again whenever the window comes back.
-    const refresh = () => useTools.getState().refresh().catch(() => {});
-    refresh();
-    const unlisten = api.onScriptsChanged(refresh);
-    window.addEventListener("focus", refresh);
-    return () => {
-      window.removeEventListener("focus", refresh);
-      unlisten.then((f) => f()).catch(() => {});
-    };
+    useTools.getState().refresh().catch(() => {});
   }, [onError]);
 
   function showMenu(e: React.MouseEvent, items: MenuEntry[]) {
@@ -111,7 +100,6 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
   const recording = status?.recording ?? true;
   const active = rules ? activeRules(rules) : [];
   const ruleCount = active.reduce((n, [, c]) => n + c, 0);
-  const scriptCount = scripts.filter((s) => s.enabled).length;
 
   return (
     <div className="flex items-center gap-1.5 border-b border-line bg-panel px-3 py-2.5">
@@ -198,21 +186,12 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
       </button>
       <button
         className={`${button} flex items-center gap-1`}
-        title={`Map Local, Map Remote, Rewrite, Block, Breakpoints (⌘L)${active.length ? `\nActive: ${active.map(([k, n]) => `${n} ${k}`).join(", ")}` : ""}`}
+        title={`Map Local, Map Remote, Rewrite, Block (⌘L)${active.length ? `\nActive: ${active.map(([k, n]) => `${n} ${k}`).join(", ")}` : ""}`}
         onClick={() => openRules({ tab: "mapLocal" })}
       >
         <Workflow size={ICON} className={HUE_TEXT.violet} />
         Rules
         <Badge n={ruleCount} hue="violet" />
-      </button>
-      <button
-        className={`${button} flex items-center gap-1`}
-        title={`JavaScript onRequest / onResponse hooks (⌘J)${scriptCount ? `\n${scriptCount} enabled` : ""}`}
-        onClick={() => openScripts(true)}
-      >
-        <Code size={ICON} className={HUE_TEXT.green} />
-        Scripts
-        <Badge n={scriptCount} hue="green" />
       </button>
 
       <div className="ml-auto flex items-center gap-1.5">

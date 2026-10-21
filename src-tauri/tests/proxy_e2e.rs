@@ -15,10 +15,9 @@ use hudsucker::hyper_util::rt::TokioIo;
 use hudsucker::rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use hudsucker::rustls::ServerConfig;
 use hudsucker::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use proxalens_lib::engine::breakpoint::{Edits, Phase, Resume};
 use proxalens_lib::engine::repeat::OutgoingRequest;
 use proxalens_lib::engine::rules::{
-    BlockRule, BreakpointRule, MapLocal, MapRemote, Matcher, Rewrite, RewriteAction, RewriteTarget,
+    BlockRule, MapLocal, MapRemote, Matcher, Rewrite, RewriteAction, RewriteTarget,
     Rules,
 };
 use proxalens_lib::engine::settings::{HostList, Settings};
@@ -751,91 +750,6 @@ async fn block_rule_matches_urls() {
     assert_eq!(h.wait_done("/big").await.state, FlowState::Blocked);
 }
 
-async fn wait_for_hit(h: &Harness, phase: Phase) -> proxalens_lib::engine::breakpoint::Hit {
-    for _ in 0..200 {
-        if let Some(hit) = h
-            .engine
-            .breakpoints
-            .pending()
-            .into_iter()
-            .find(|x| x.phase == phase)
-        {
-            return hit;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("no breakpoint hit");
-}
-
-#[tokio::test]
-async fn breakpoints_edit_requests_and_abort_responses() {
-    let up = http_upstream().await;
-    let h = harness(vec![], None).await;
-    h.engine
-        .set_rules(Rules {
-            breakpoints: vec![
-                BreakpointRule {
-                    matcher: matching("*/echo"),
-                    request: true,
-                    response: false,
-                },
-                BreakpointRule {
-                    matcher: matching("*/hello"),
-                    request: false,
-                    response: true,
-                },
-            ],
-            ..Default::default()
-        })
-        .unwrap();
-
-    // Request phase: change the body before it reaches the server.
-    let client = h.client.clone();
-    let url = format!("http://{up}/echo");
-    let sent = tokio::spawn(async move {
-        client
-            .post(url)
-            .body("original")
-            .send()
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap()
-    });
-    let hit = wait_for_hit(&h, Phase::Request).await;
-    assert_eq!(hit.body, b"original");
-    let paused = h.engine.store.get(hit.flow_id).unwrap().0;
-    assert_eq!(paused.state, FlowState::Paused);
-    let edits = Edits {
-        headers: hit.headers.clone(),
-        body: b"edited at breakpoint".to_vec(),
-        ..Default::default()
-    };
-    assert!(h.engine.breakpoints.resume(
-        hit.flow_id,
-        Phase::Request,
-        Resume::Continue(Some(edits))
-    ));
-    assert_eq!(sent.await.unwrap(), "edited at breakpoint");
-    let f = h.wait_done("/echo").await;
-    assert_eq!(f.tags, vec!["Breakpoint"]);
-
-    // Response phase: abort.
-    let client = h.client.clone();
-    let url = format!("http://{up}/hello");
-    let got = tokio::spawn(async move { client.get(url).send().await.unwrap().status() });
-    let hit = wait_for_hit(&h, Phase::Response).await;
-    assert_eq!(hit.status, Some(200));
-    assert_eq!(hit.body, br#"{"hello":"world"}"#);
-    h.engine
-        .breakpoints
-        .resume(hit.flow_id, Phase::Response, Resume::Abort);
-    assert_eq!(got.await.unwrap(), 502);
-    let f = h.wait_done("/hello").await;
-    assert_eq!(f.state, FlowState::Failed);
-}
-
 #[tokio::test]
 async fn invalid_rules_are_refused() {
     let h = harness(vec![], None).await;
@@ -848,56 +762,6 @@ async fn invalid_rules_are_refused() {
     };
     assert!(h.engine.set_rules(bad).is_err());
     assert_eq!(h.engine.rules(), Rules::default());
-}
-
-#[tokio::test]
-async fn scripts_change_traffic_and_can_answer_requests() {
-    let up = http_upstream().await;
-    let h = harness(vec![], None).await;
-    let scripts = &h.engine.scripts;
-    scripts
-        .create(&proxalens_lib::engine::script::template(
-            "Auth and plan",
-            "*",
-            r#"function onRequest(ctx) {
-                 ctx.headers["Authorization"] = "Bearer from-script";
-               }
-               function onResponse(ctx) {
-                 if (ctx.url.endsWith("/gzip")) ctx.body = ctx.body.toUpperCase();
-               }"#,
-        ))
-        .unwrap();
-    scripts
-        .create(&proxalens_lib::engine::script::template(
-            "Mock",
-            "*://mock.invalid/*",
-            r#"function onRequest(ctx) { ctx.respondWith({ status: 202, body: { mocked: ctx.method } }); }"#,
-        ))
-        .unwrap();
-
-    let res = h
-        .client
-        .get(format!("http://{up}/auth"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(res.text().await.unwrap(), "Bearer from-script");
-    let res = h
-        .client
-        .get(format!("http://{up}/gzip"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(
-        res.text().await.unwrap(),
-        "DECODED TEXT",
-        "scripts see decoded bodies"
-    );
-    let res = h.client.get("http://mock.invalid/x").send().await.unwrap();
-    assert_eq!(res.status(), 202);
-    assert_eq!(res.text().await.unwrap(), r#"{"mocked":"GET"}"#);
-    assert_eq!(h.wait_done("/x").await.tags, vec!["Script"]);
-    assert!(scripts.console().is_empty(), "{:?}", scripts.console());
 }
 
 #[tokio::test]

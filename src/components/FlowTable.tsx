@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { api, type FlowMeta } from "../api";
-import { addRuleFor, batch, compareWith, dontDecrypt, editAndRepeat, files, removeFlows, repeat } from "../lib/actions";
+import { addRuleFor, batch, dontDecrypt, editAndRepeat, files, removeFlows, repeat } from "../lib/actions";
 import { copy } from "../lib/clipboard";
 import { formatCurl } from "../lib/curl";
 import { buildPredicate } from "../lib/filter";
@@ -10,7 +10,6 @@ import { baseDomain } from "../lib/http";
 import { formatBytes, formatDuration, formatTime, methodHue, shortContentType, statusColor } from "../lib/format";
 import { useColumns, type ColumnKey, type Sort } from "../state/columns";
 import { useFlows } from "../state/flows";
-import { useUi } from "../state/ui";
 import { ContextMenu, contextMenuKey, HUE_BADGE, separatorLine, startDrag, type MenuEntry } from "./ui";
 
 const ROW_HEIGHT = 24;
@@ -420,7 +419,6 @@ function typeLabel(f: FlowMeta): string {
 
 function statusLabel(f: FlowMeta): string {
   if (f.state === "tunnel") return "TUN";
-  if (f.state === "paused") return "⏸";
   if (f.state === "blocked") return "BLK";
   if (f.state === "failed") return "ERR";
   if (f.state === "inProgress") return "…";
@@ -432,7 +430,6 @@ function rowClass(f: FlowMeta, selected: boolean, index: number): string {
   if (f.state === "failed" || f.state === "blocked")
     return "bg-st-server/8 text-st-server";
   if (f.state === "tunnel") return "text-muted italic";
-  if (f.state === "paused") return "bg-st-client/10 text-st-client";
   if (f.state === "inProgress") return "text-muted";
   return index % 2 ? "bg-ink/[0.03] hover:bg-ink/6" : "hover:bg-ink/5";
 }
@@ -440,7 +437,6 @@ function rowClass(f: FlowMeta, selected: boolean, index: number): string {
 /** Context-menu entries for one flow. Bodies are fetched on demand. */
 export function flowMenu(f: FlowMeta): MenuEntry[] {
   const { pinned, togglePin, setScope } = useFlows.getState();
-  const mark = useUi.getState().compareMark;
   const replayable = f.state !== "tunnel" && f.state !== "webSocket";
   const domain = baseDomain(f.host);
   const withDetail = (fn: (d: NonNullable<Awaited<ReturnType<typeof api.getFlow>>>) => void) => () =>
@@ -464,13 +460,8 @@ export function flowMenu(f: FlowMeta): MenuEntry[] {
     "separator",
     { label: "Repeat", disabled: !replayable, onSelect: () => repeat(f.id) },
     { label: "Edit and Repeat…", disabled: !replayable, onSelect: () => editAndRepeat(f.id) },
-    {
-      label: mark !== null && mark !== f.id ? `Compare with #${mark}` : "Mark for Comparison",
-      onSelect: () => compareWith(f.id),
-    },
     { label: "Export as HAR…", onSelect: () => files.exportHar([f.id]) },
     "separator",
-    { label: "Breakpoint…", disabled: !replayable, onSelect: () => addRuleFor(f.id, "breakpoints") },
     { label: "Map Local…", disabled: !replayable, onSelect: () => addRuleFor(f.id, "mapLocal") },
     { label: "Map Remote…", disabled: !replayable, onSelect: () => addRuleFor(f.id, "mapRemote") },
     { label: "Rewrite…", disabled: !replayable, onSelect: () => addRuleFor(f.id, "rewrite") },
@@ -502,7 +493,6 @@ export function batchMenu(ids: number[]): MenuEntry[] {
     { label: "Export as HAR…", onSelect: () => files.exportHar(ids) },
     "separator",
     { label: `Repeat ${replayable.length} in Order`, disabled: !replayable.length, onSelect: () => batch.repeat(replayable) },
-    ...(ids.length === 2 ? [{ label: `Compare #${ids[0]} with #${ids[1]}`, onSelect: () => useUi.getState().openDiff(ids[0], ids[1]) }] : []),
     "separator",
     { label: `Remove ${ids.length} Flows (⌫)`, onSelect: () => removeFlows(ids) },
   ];

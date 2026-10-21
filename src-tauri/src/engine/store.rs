@@ -23,8 +23,6 @@ pub enum FlowState {
     Tunnel,
     /// Refused by the block list or a block rule.
     Blocked,
-    /// Held at a breakpoint.
-    Paused,
 }
 
 /// Summary fields shown in the flow list.

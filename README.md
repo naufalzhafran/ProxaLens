@@ -19,7 +19,7 @@ See, tweak, mock and replay your app's network traffic — no subscription neede
 
 ## ✨ Why ProxaLens?
 
-Proxyman-style tooling, but free and hackable. A fast Rust engine does the heavy lifting, a React UI makes it pleasant, and a built-in MCP server lets AI agents inspect your traffic too.
+Proxyman-style tooling, but free and hackable. A fast Rust engine does the heavy lifting and a React UI makes it pleasant.
 
 ## 🚀 Features
 
@@ -31,28 +31,22 @@ Proxyman-style tooling, but free and hackable. A fast Rust engine does the heavy
 
 ### 🧐 Inspect
 - 🗂️ Three-pane inspector: apps & domains → flows → details.
-- 🌳 Bodies as JSON tree, text, hex, image or protobuf; gzip/br/zstd decoded automatically.
+- 🌳 Bodies as JSON tree, text, hex or image; gzip/br/zstd decoded automatically.
 - 💬 WebSocket message view, timings, and the app behind each request.
 - 🔎 httpmon filter syntax (`m:post s:4xx ct:json re:… app:chrome`) plus method/status chips.
 
 ### 🛠️ Debug
 - 🔁 Repeat, Edit & Repeat, and Compose.
-- ⚖️ Compare two flows side by side.
 - 💾 HAR import/export and saved sessions.
 - 🐢 Throttling and 📋 Copy as cURL.
 
-### 🎭 Rules & Scripts
+### 🎭 Rules
 - 🗺️ Map Local, Map Remote, Rewrite and Block rules.
-- ⏸️ Breakpoints: edit a request or response before it continues.
 - 🔐 SSL Proxying include/exclude, plus Block and Allow lists.
-- 📝 JavaScript `onRequest` / `onResponse` hooks (httpmon file format) with a Monaco editor.
 
 ### 📱 Devices
 - Phones and tablets on your network via a setup page with a QR code.
 - Certificate install in iOS Simulators.
-
-### 🤖 MCP server
-Let agents like Claude Code list, search and replay traffic, add mocks and manage scripts. Off by default — enable it under **Settings → General**.
 
 ## 📥 Install
 
@@ -108,9 +102,8 @@ Update bundles are signed with the updater key in the `TAURI_SIGNING_PRIVATE_KEY
 
 | Path | What lives there |
 | --- | --- |
-| `src-tauri/src/engine/` | Tauri-independent proxy engine (store, CA, pipeline, rules, scripts, HAR…) |
+| `src-tauri/src/engine/` | Tauri-independent proxy engine (store, CA, pipeline, rules, HAR…) |
 | `src-tauri/src/commands.rs` | IPC surface |
-| `src-tauri/src/mcp.rs` | MCP server |
 | `src/` | React UI |
 
 ## 🤝 Contributing

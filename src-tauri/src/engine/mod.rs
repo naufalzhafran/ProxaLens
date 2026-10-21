@@ -1,17 +1,13 @@
 //! The proxy engine. Independent of Tauri so it can be tested on its own.
 
-pub mod breakpoint;
 pub mod ca;
 pub mod decode;
-pub mod filter;
 pub mod guard;
 pub mod har;
 pub mod procinfo;
-pub mod proto;
 pub mod proxy;
 pub mod repeat;
 pub mod rules;
-pub mod script;
 pub mod settings;
 pub mod store;
 pub mod sysproxy;
@@ -32,12 +28,10 @@ use tokio::net::TcpListener;
 use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinHandle;
 
-use breakpoint::Breakpoints;
 use ca::CaBundle;
 use proxy::{FlowHandler, Recorder};
 use repeat::{OutgoingRequest, RepeatError};
 use rules::{CompiledRules, Rules};
-use script::Scripts;
 use settings::Settings;
 use store::{FlowData, FlowId, FlowMeta, Store};
 use sysproxy::{NetworkSetup, RestoreReport, SysProxyError};
@@ -123,9 +117,6 @@ pub struct Engine {
     pub ca: CaBundle,
     settings: Arc<parking_lot::RwLock<Settings>>,
     rules: Arc<parking_lot::RwLock<Arc<CompiledRules>>>,
-    pub breakpoints: Arc<Breakpoints>,
-    pub scripts: Arc<Scripts>,
-    pub proto: proto::Registries,
     pub processes: Arc<procinfo::Resolver>,
     running: Mutex<Option<Running>>,
 }
@@ -143,12 +134,6 @@ impl Engine {
             rules: Arc::new(parking_lot::RwLock::new(Arc::new(CompiledRules::new(
                 rules,
             )))),
-            breakpoints: Arc::new(Breakpoints::new(breakpoint::DEFAULT_TIMEOUT)),
-            scripts: Arc::new(Scripts::new(
-                cfg.data_dir.join("scripts"),
-                script::DEFAULT_TIMEOUT,
-            )),
-            proto: proto::Registries::default(),
             processes: procinfo::Resolver::new(Arc::new(procinfo::Darwin), store.clone()),
             cfg,
             running: Mutex::new(None),
@@ -261,8 +246,6 @@ impl Engine {
             self.cfg.body_cap,
             self.settings.clone(),
             self.rules.clone(),
-            self.breakpoints.clone(),
-            self.scripts.clone(),
             self.processes.clone(),
             proxy::LocalPages {
                 ca_pem: self.ca.cert_pem.clone(),
@@ -293,8 +276,6 @@ impl Engine {
     }
 
     pub async fn stop(&self) {
-        // Paused flows would otherwise hold their connections open.
-        self.breakpoints.resume_all();
         let running = self.running.lock().await.take();
         if let Some(r) = running {
             let _ = r.shutdown.send(());

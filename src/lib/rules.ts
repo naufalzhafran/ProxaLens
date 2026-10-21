@@ -1,7 +1,6 @@
 // Helpers for building rules in the UI. Matching itself happens in the
 // engine (src-tauri/src/engine/rules.rs).
 import type {
-  BreakpointRule,
   FlowDetail,
   MapLocalRule,
   MapRemoteRule,
@@ -17,7 +16,6 @@ export const RULE_KINDS: { id: RuleKind; label: string }[] = [
   { id: "mapRemote", label: "Map Remote" },
   { id: "rewrite", label: "Rewrite" },
   { id: "block", label: "Block" },
-  { id: "breakpoints", label: "Breakpoints" },
 ];
 
 /** Enabled rules per kind, skipping kinds with none: [["Map Local", 2], …]. */
@@ -51,8 +49,6 @@ export function newRule(kind: RuleKind, url = ""): Rules[RuleKind][number] {
       return { ...m, to: "" } satisfies MapRemoteRule;
     case "rewrite":
       return { ...m, target: "responseHeader", action: "set", header: "", find: "", value: "" } satisfies RewriteRule;
-    case "breakpoints":
-      return { ...m, request: true, response: true } satisfies BreakpointRule;
     case "block":
       return m;
   }
@@ -81,10 +77,6 @@ export function ruleSummary(kind: RuleKind, r: Rules[RuleKind][number]): string 
     case "rewrite": {
       const rw = r as RewriteRule;
       return `${rw.action} ${rw.target.replace(/([A-Z])/g, " $1").toLowerCase()}${rw.header ? ` ${rw.header}` : ""}`;
-    }
-    case "breakpoints": {
-      const b = r as BreakpointRule;
-      return [b.request && "request", b.response && "response"].filter(Boolean).join(" + ") || "off";
     }
     case "block":
       return "→ 403";

@@ -64,7 +64,7 @@ export const Inspector = memo(function Inspector({ sideBySide = false }: { sideB
         <div className="selectable font-mono text-xs">
           <div className="line-clamp-3 break-all" title={m.url}>
             <span className={`mr-1 rounded px-1 py-px text-[11px] font-semibold ${HUE_BADGE[methodHue(m.method)]}`}>{m.method}</span>{" "}
-            <span className={statusColor(m.status)}>{m.status ?? (m.state === "failed" ? "ERR" : m.state === "paused" ? "paused" : "…")}</span> {m.url}
+            <span className={statusColor(m.status)}>{m.status ?? (m.state === "failed" ? "ERR" : "…")}</span> {m.url}
           </div>
           {m.error && <div className="mt-1 text-st-server">{m.error}</div>}
           {m.tags.length > 0 && (
@@ -312,7 +312,7 @@ const SHORTCUTS: [string, string][] = [
   ["⌘R / ⌘N", "Repeat the selected flow / compose a request"],
   ["⌫", "Remove the selected flows"],
   ["⌘K", "Clear all flows"],
-  ["⌘L / ⌘J", "Rules / scripts"],
+  ["⌘L", "Rules"],
   ["⌘O / ⌘S", "Open / save a session"],
   ["⌘,", "Settings"],
 ];
@@ -336,34 +336,31 @@ function EmptyState() {
   );
 }
 
-type BodyMode = "protobuf" | "tree" | "text" | "hex" | "preview";
+type BodyMode = "tree" | "text" | "hex" | "preview";
 const HEX_PAGE = 64 * 1024;
 
 export function BodyViewer({ body, contentType }: { body: BodyView; contentType: string | null }) {
   const kind = useMemo(() => bodyKind(body, contentType), [body, contentType]);
-  const base: BodyMode[] =
+  const modes: BodyMode[] =
     kind === "json" ? ["tree", "text", "hex"] : kind === "image" ? ["preview", "hex"] : kind === "text" ? ["text", "hex"] : ["hex"];
-  const modes: BodyMode[] = body.protobuf ? ["protobuf", ...base.filter((m) => m !== "tree")] : base;
   const [preferred, setPreferred] = useState<BodyMode | null>(null);
   const [hexLimit, setHexLimit] = useState(HEX_PAGE);
   const mode = preferred && modes.includes(preferred) ? preferred : modes[0];
   useEffect(() => setHexLimit(HEX_PAGE), [body]);
 
   const parsed = useMemo(() => (kind === "json" ? JSON.parse(body.text!) : null), [kind, body.text]);
-  const proto = useMemo(() => (body.protobuf ? JSON.parse(body.protobuf.json) : null), [body.protobuf]);
   const bytes = useMemo(() => (mode === "hex" ? bodyBytes(body) : null), [mode, body]);
 
   // Find works on text; searching a tree shows it as text so every match is visible.
   const [query, setQuery] = useState("");
   const [current, setCurrent] = useState(0);
-  const searchable = kind === "json" || kind === "text" || !!body.protobuf;
-  const shown: BodyMode = query && (mode === "tree" || mode === "protobuf") ? "text" : mode;
+  const searchable = kind === "json" || kind === "text";
+  const shown: BodyMode = query && mode === "tree" ? "text" : mode;
   const text = useMemo(() => {
     if (shown !== "text") return "";
-    if (mode === "protobuf") return JSON.stringify(proto, null, 2);
     return kind === "json" ? JSON.stringify(parsed, null, 2) : (body.text ?? "");
-  }, [shown, mode, kind, parsed, proto, body.text]);
-  const lang: Lang = langFor(contentType, kind === "json" || mode === "protobuf");
+  }, [shown, kind, parsed, body.text]);
+  const lang: Lang = langFor(contentType, kind === "json");
   const ranges = useMemo(() => findMatches(text, query), [text, query]);
   useEffect(() => setCurrent(0), [query, body]);
   const step = (by: number) => {
@@ -436,21 +433,6 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
           </div>
         )}
       </div>
-      {shown === "protobuf" && body.protobuf && (
-        <>
-          <p className="mb-1 text-muted">
-            {body.protobuf.message
-              ? `Decoded as ${body.protobuf.message}`
-              : "Decoded without a schema (field numbers as keys). Add .proto files under Settings → Protobuf for names."}
-          </p>
-          {body.protobuf.notes.map((n, i) => (
-            <p key={i} className="mb-1 text-st-client">
-              {n}
-            </p>
-          ))}
-          <JsonTree value={proto} />
-        </>
-      )}
       {shown === "tree" && <JsonTree value={parsed} />}
       {shown === "text" && <Code text={text} lang={lang} ranges={ranges} current={current} />}
       {mode === "preview" && contentType && (

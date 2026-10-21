@@ -1,10 +1,9 @@
-// Editor for Map Local, Map Remote, Rewrite, Block and Breakpoint rules.
+// Editor for Map Local, Map Remote, Rewrite and Block rules.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   api,
   errorMessage,
-  type BreakpointRule,
   type MapLocalRule,
   type MapRemoteRule,
   type Matcher,
@@ -198,7 +197,6 @@ const help: Record<RuleKind, string> = {
   mapRemote: "Send matching requests to another host, for example a local or staging server.",
   rewrite: "Change headers, bodies or the status code of matching requests and responses.",
   block: "Refuse matching requests with 403 Forbidden.",
-  breakpoints: "Pause matching requests or responses so you can edit them before they continue.",
 };
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
@@ -272,20 +270,6 @@ function RuleForm({ kind, rule, onChange }: { kind: RuleKind; rule: AnyRule; onC
         </Field>
       )}
       {kind === "rewrite" && <RewriteFields rule={rule as RewriteRule} onChange={onChange} />}
-      {kind === "breakpoints" && (
-        <div className="flex gap-4">
-          {(["request", "response"] as const).map((p) => (
-            <label key={p} className="flex items-center gap-2 capitalize">
-              <input
-                type="checkbox"
-                checked={(rule as BreakpointRule)[p]}
-                onChange={(e) => onChange({ ...(rule as BreakpointRule), [p]: e.target.checked })}
-              />
-              Pause on {p}
-            </label>
-          ))}
-        </div>
-      )}
       {kind === "block" && <p className="text-muted">Matching requests get 403 Forbidden.</p>}
     </div>
   );

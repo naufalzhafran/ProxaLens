@@ -1,10 +1,10 @@
-//! Traffic rules: Map Local, Map Remote, Rewrite, Block and Breakpoint.
+//! Traffic rules: Map Local, Map Remote, Rewrite and Block.
 //!
 //! Each rule matches requests by method and URL (a `*`/`?` wildcard or a
 //! regex). Rules are stored as `rules.json` in the data directory, compiled
 //! once when saved, and applied by the proxy handler in this order:
-//! block → request breakpoint → Map Local → request rewrite → Map Remote →
-//! upstream → response rewrite → response breakpoint.
+//! block → request rewrite → Map Local → Map Remote → upstream → response
+//! rewrite.
 //! The edits themselves are pure functions on [`RequestParts`] and
 //! [`ResponseParts`] so they can be tested without a proxy.
 
@@ -126,21 +126,11 @@ pub struct BlockRule {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct BreakpointRule {
-    #[serde(flatten)]
-    pub matcher: Matcher,
-    pub request: bool,
-    pub response: bool,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
 pub struct Rules {
     pub map_local: Vec<MapLocal>,
     pub map_remote: Vec<MapRemote>,
     pub rewrite: Vec<Rewrite>,
     pub block: Vec<BlockRule>,
-    pub breakpoints: Vec<BreakpointRule>,
 }
 
 impl Rules {
@@ -173,8 +163,7 @@ impl Rules {
             .map(|r| &r.matcher)
             .chain(self.map_remote.iter().map(|r| &r.matcher))
             .chain(self.rewrite.iter().map(|r| &r.matcher))
-            .chain(self.block.iter().map(|r| &r.matcher))
-            .chain(self.breakpoints.iter().map(|r| &r.matcher));
+            .chain(self.block.iter().map(|r| &r.matcher));
         for m in matchers {
             compile_pattern(m).map_err(|e| format!("{}: {e}", label(m)))?;
         }
@@ -275,7 +264,6 @@ pub struct CompiledRules {
     map_remote: Vec<CompiledMatcher>,
     rewrite: Vec<(CompiledMatcher, Option<Regex>)>,
     block: Vec<CompiledMatcher>,
-    breakpoints: Vec<CompiledMatcher>,
 }
 
 impl CompiledRules {
@@ -303,11 +291,6 @@ impl CompiledRules {
                 .collect(),
             block: rules
                 .block
-                .iter()
-                .map(|r| CompiledMatcher::new(&r.matcher))
-                .collect(),
-            breakpoints: rules
-                .breakpoints
                 .iter()
                 .map(|r| CompiledMatcher::new(&r.matcher))
                 .collect(),
@@ -347,17 +330,6 @@ impl CompiledRules {
             .filter(|((m, _), r)| r.target.is_request() == request && m.matches(method, url))
             .map(|((_, find), r)| (r, find.as_ref()))
             .collect()
-    }
-
-    /// Whether to pause on the request and on the response.
-    pub fn breakpoint(&self, method: &str, url: &str) -> (bool, bool) {
-        self.breakpoints
-            .iter()
-            .zip(&self.rules.breakpoints)
-            .filter(|(m, _)| m.matches(method, url))
-            .fold((false, false), |(req, res), (_, r)| {
-                (req || r.request, res || r.response)
-            })
     }
 }
 
@@ -720,7 +692,7 @@ mod tests {
     }
 
     #[test]
-    fn first_match_wins_and_breakpoints_combine() {
+    fn first_match_wins() {
         let rules = CompiledRules::new(Rules {
             map_local: vec![
                 MapLocal {
@@ -732,18 +704,6 @@ mod tests {
                     matcher: m("*"),
                     status: 202,
                     ..Default::default()
-                },
-            ],
-            breakpoints: vec![
-                BreakpointRule {
-                    matcher: m("*"),
-                    request: true,
-                    response: false,
-                },
-                BreakpointRule {
-                    matcher: m("a.com"),
-                    request: false,
-                    response: true,
                 },
             ],
             block: vec![BlockRule {
@@ -759,8 +719,6 @@ mod tests {
             rules.map_local("GET", "https://b.com/").unwrap().status,
             202
         );
-        assert_eq!(rules.breakpoint("GET", "https://a.com/y"), (true, true));
-        assert_eq!(rules.breakpoint("GET", "https://b.com/y"), (true, false));
         assert!(rules.is_blocked("GET", "https://b.com/ads/1.js"));
         assert!(!rules.is_blocked("GET", "https://b.com/app.js"));
     }

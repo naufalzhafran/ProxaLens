@@ -1,9 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage, type RestoreReport, type Status } from "./api";
-import { BreakpointDialog, useBreakpoints } from "./components/BreakpointDialog";
 import { Composer } from "./components/Composer";
 import { DevicesDialog } from "./components/DevicesDialog";
-import { DiffView } from "./components/DiffView";
 import { FilterBar } from "./components/FilterBar";
 import { FlowTable } from "./components/FlowTable";
 import { Inspector } from "./components/Inspector";
@@ -29,8 +27,6 @@ import { MAX_FLOWS, useFlows } from "./state/flows";
 import { emptyDraft, useLayout, useUi } from "./state/ui";
 import { useUpdate } from "./state/update";
 
-const ScriptsWindow = lazy(() => import("./scripts/ScriptsWindow"));
-
 export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,12 +36,9 @@ export default function App() {
   const filterRef = useRef<HTMLInputElement>(null);
   const toast = useToast((s) => s.message);
   const composer = useUi((s) => s.composer);
-  const diff = useUi((s) => s.diff);
   const settingsTab = useUi((s) => s.settingsTab);
   const rulesView = useUi((s) => s.rules);
-  const scriptsOpen = useUi((s) => s.scriptsOpen);
   const devicesOpen = useUi((s) => s.devicesOpen);
-  const hits = useBreakpoints();
   const update = useUpdate();
   const sidebarHidden = useLayout((s) => s.sidebarHidden);
   const bottom = useLayout((s) => s.inspector === "bottom");
@@ -112,8 +105,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey || e.shiftKey || e.altKey || e.repeat) return;
-      // Leave shortcuts to the dialog while one is open (setup, breakpoints and
-      // the Scripts editor included), so ⌘K can't clear traffic behind it.
+      // Leave shortcuts to the dialog while one is open (setup included), so
+      // ⌘K can't clear traffic behind it.
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const ui = useUi.getState();
       const selected = useFlows.getState().selectedId;
@@ -132,7 +125,6 @@ export default function App() {
         r: () => selected !== null && repeat(selected),
         ",": () => ui.openSettings("general"),
         l: () => ui.openRules({ tab: "mapLocal" }),
-        j: () => ui.openScripts(true),
         b: () => useLayout.getState().toggleSidebar(),
       };
       const action = actions[e.key];
@@ -237,16 +229,9 @@ export default function App() {
         <Onboarding status={status} setStatus={setStatus} onClose={() => setSetupOpen(false)} />
       )}
       {composer && <Composer initial={composer} />}
-      {diff && <DiffView ids={diff} />}
       {settingsTab && <SettingsDialog initialTab={settingsTab} />}
       {rulesView && <RulesDialog view={rulesView} />}
       {devicesOpen && <DevicesDialog />}
-      {scriptsOpen && (
-        <Suspense fallback={null}>
-          <ScriptsWindow />
-        </Suspense>
-      )}
-      {hits.length > 0 && <BreakpointDialog hits={hits} />}
       {/* Always mounted, so screen readers announce each new message. */}
       <div role="status" aria-live="polite" className="pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2">
         {toast && (

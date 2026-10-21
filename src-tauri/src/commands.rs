@@ -11,10 +11,8 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::broadcast::error::TryRecvError;
 
-use crate::engine::breakpoint::{Edits, Phase, Resume};
 use crate::engine::repeat::OutgoingRequest;
 use crate::engine::rules::Rules;
-use crate::engine::script::{LogEntry, ScriptInfo};
 use crate::engine::settings::Settings;
 use crate::engine::store::{FlowEvent, FlowId, FlowMeta, WsDirection};
 use crate::engine::sysproxy::RestoreReport;
@@ -23,7 +21,6 @@ use crate::engine::{decode, har};
 
 pub struct AppState {
     pub engine: Arc<Engine>,
-    pub mcp: Arc<crate::mcp::McpServer>,
     pub sysproxy: Arc<SysProxyController>,
     pub port: Mutex<u16>,
     pub last_error: Mutex<Option<String>>,
@@ -32,14 +29,9 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(
-        engine: Arc<Engine>,
-        sysproxy: Arc<SysProxyController>,
-        mcp: Arc<crate::mcp::McpServer>,
-    ) -> Self {
+    pub fn new(engine: Arc<Engine>, sysproxy: Arc<SysProxyController>) -> Self {
         Self {
             engine,
-            mcp,
             sysproxy,
             port: Mutex::new(DEFAULT_PORT),
             last_error: Mutex::new(None),
@@ -242,8 +234,6 @@ pub struct BodyView {
     encoded_size: Option<usize>,
     /// Why the body could not be decoded (it is shown raw instead).
     decode_error: Option<String>,
-    /// Protobuf / gRPC bodies decoded to JSON.
-    protobuf: Option<crate::engine::proto::ProtoView>,
 }
 
 impl BodyView {
@@ -264,7 +254,6 @@ impl BodyView {
             encoding: None,
             encoded_size: None,
             decode_error: None,
-            protobuf: None,
         }
     }
 
@@ -342,31 +331,6 @@ pub fn remove_flows(state: State<'_, AppState>, ids: Vec<FlowId>) -> usize {
 #[tauri::command]
 pub fn get_flow(state: State<'_, AppState>, id: FlowId) -> Option<FlowDetail> {
     let (meta, d) = state.engine.store.get(id)?;
-    let engine = &state.engine;
-    let sources = engine.settings().protobuf;
-    let proto = |headers: &[(String, String)], body: &BodyView, request: bool| {
-        let ct = headers
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
-            .map(|(_, v)| v.as_str())?;
-        if !crate::engine::proto::is_protobuf(ct) || body.size == 0 {
-            return None;
-        }
-        let bytes = match (&body.text, &body.base64) {
-            (Some(t), _) => t.as_bytes().to_vec(),
-            (_, Some(b)) => base64::engine::general_purpose::STANDARD.decode(b).ok()?,
-            _ => return None,
-        };
-        crate::engine::proto::decode_body(
-            ct,
-            &bytes,
-            &meta.host,
-            &meta.path,
-            request,
-            &sources,
-            &engine.proto,
-        )
-    };
     let request_body = BodyView::decoded(
         d.request_body,
         d.request_body_truncated,
@@ -379,10 +343,6 @@ pub fn get_flow(state: State<'_, AppState>, id: FlowId) -> Option<FlowDetail> {
         &d.response_headers,
         d.bodies_decoded,
     );
-    let mut request_body = request_body;
-    let mut response_body = response_body;
-    request_body.protobuf = proto(&d.request_headers, &request_body, true);
-    response_body.protobuf = proto(&d.response_headers, &response_body, false);
     Some(FlowDetail {
         meta,
         request_headers: d.request_headers,
@@ -442,53 +402,12 @@ pub async fn set_settings(
     } else if moved {
         *state.port.lock() = settings.port;
     }
-    if before.mcp != settings.mcp {
-        sync_mcp(&state).await?;
-    }
     if before.system_proxy_mode != settings.system_proxy_mode && state.sysproxy.is_enabled() {
         apply_system_proxy(&state, false).await?;
         apply_system_proxy(&state, true).await?;
     }
     notify_status(&app).await;
     Ok(state.engine.settings())
-}
-
-/// Starts, stops or moves the MCP server to match the settings.
-pub async fn sync_mcp(state: &AppState) -> CmdResult<()> {
-    let cfg = state.engine.settings().mcp;
-    let running = state.mcp.addr().await;
-    if running.is_some_and(|a| !cfg.enabled || a.port() != cfg.port) {
-        state.mcp.stop().await;
-    }
-    if cfg.enabled {
-        state.mcp.start(cfg.port).await?;
-    }
-    Ok(())
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct McpInfo {
-    running: bool,
-    url: Option<String>,
-    token: String,
-    /// Command that registers the server with Claude Code.
-    claude_command: Option<String>,
-}
-
-#[tauri::command]
-pub async fn mcp_info(state: State<'_, AppState>) -> CmdResult<McpInfo> {
-    let addr = state.mcp.addr().await;
-    let url = addr.map(|a| format!("http://{a}/mcp"));
-    let token = state.mcp.token().to_string();
-    Ok(McpInfo {
-        running: addr.is_some(),
-        claude_command: url.as_ref().map(|u| {
-            format!("claude mcp add --transport http proxalens {u} --header \"Authorization: Bearer {token}\"")
-        }),
-        url,
-        token,
-    })
 }
 
 #[derive(Serialize)]
@@ -623,195 +542,6 @@ pub fn get_rules(state: State<'_, AppState>) -> Rules {
 pub fn set_rules(state: State<'_, AppState>, rules: Rules) -> CmdResult<Rules> {
     state.engine.set_rules(rules).map_err(|e| e.to_string())?;
     Ok(state.engine.rules())
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HitView {
-    flow_id: FlowId,
-    phase: Phase,
-    method: String,
-    url: String,
-    status: Option<u16>,
-    headers: Vec<(String, String)>,
-    body: BodyView,
-    deadline: u64,
-}
-
-/// Flows paused at a breakpoint, oldest first.
-#[tauri::command]
-pub fn list_breakpoints(state: State<'_, AppState>) -> Vec<HitView> {
-    state
-        .engine
-        .breakpoints
-        .pending()
-        .into_iter()
-        .map(|h| HitView {
-            flow_id: h.flow_id,
-            phase: h.phase,
-            method: h.method,
-            url: h.url,
-            status: h.status,
-            headers: h.headers,
-            body: BodyView::new(h.body, false),
-            deadline: h.deadline,
-        })
-        .collect()
-}
-
-/// Continues a paused flow with `edits`, or aborts it when `abort` is set.
-#[tauri::command]
-pub fn resume_breakpoint(
-    state: State<'_, AppState>,
-    flow_id: FlowId,
-    phase: Phase,
-    abort: bool,
-    edits: Option<Edits>,
-) -> bool {
-    let resume = if abort {
-        Resume::Abort
-    } else {
-        Resume::Continue(edits)
-    };
-    state.engine.breakpoints.resume(flow_id, phase, resume)
-}
-
-#[tauri::command]
-pub fn resume_all_breakpoints(state: State<'_, AppState>) {
-    state.engine.breakpoints.resume_all();
-}
-
-/// Tells the UI when flows are paused or resumed, and brings the window
-/// forward when a new one is paused.
-pub fn bridge_breakpoints(app: &AppHandle) {
-    let state = app.state::<AppState>();
-    let mut rx = state.engine.breakpoints.subscribe();
-    let breakpoints = state.engine.breakpoints.clone();
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut last = 0;
-        loop {
-            match rx.recv().await {
-                Ok(()) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                Err(_) => return,
-            }
-            let n = breakpoints.pending().len();
-            if n > last
-                && let Some(w) = app.get_webview_window("main")
-            {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
-            last = n;
-            let _ = app.emit("breakpoints-changed", n);
-        }
-    });
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScriptList {
-    dir: String,
-    scripts: Vec<ScriptInfo>,
-}
-
-#[tauri::command]
-pub fn list_scripts(state: State<'_, AppState>) -> ScriptList {
-    let scripts = &state.engine.scripts;
-    ScriptList {
-        dir: scripts.dir().to_string_lossy().into_owned(),
-        scripts: scripts.list(),
-    }
-}
-
-/// Picks up scripts edited outside the app.
-#[tauri::command]
-pub fn reload_scripts(state: State<'_, AppState>) {
-    state.engine.scripts.reload();
-}
-
-#[tauri::command]
-pub fn read_script(state: State<'_, AppState>, file_name: String) -> CmdResult<String> {
-    state
-        .engine
-        .scripts
-        .read(&file_name)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn save_script(state: State<'_, AppState>, file_name: String, source: String) -> CmdResult<()> {
-    state
-        .engine
-        .scripts
-        .save(&file_name, &source)
-        .map_err(|e| e.to_string())
-}
-
-/// Creates a script from a template; returns its file name.
-#[tauri::command]
-pub fn create_script(
-    state: State<'_, AppState>,
-    name: String,
-    matches: String,
-    body: String,
-) -> CmdResult<String> {
-    let source = crate::engine::script::template(&name, &matches, &body);
-    state
-        .engine
-        .scripts
-        .create(&source)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn delete_script(state: State<'_, AppState>, file_name: String) -> CmdResult<()> {
-    state
-        .engine
-        .scripts
-        .delete(&file_name)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn set_script_enabled(
-    state: State<'_, AppState>,
-    file_name: String,
-    enabled: bool,
-) -> CmdResult<()> {
-    state
-        .engine
-        .scripts
-        .set_enabled(&file_name, enabled)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn script_console(state: State<'_, AppState>) -> Vec<LogEntry> {
-    state.engine.scripts.console()
-}
-
-#[tauri::command]
-pub fn clear_script_console(state: State<'_, AppState>) {
-    state.engine.scripts.clear_console();
-}
-
-/// Tells the UI when scripts or their console change (debounced).
-pub fn bridge_scripts(app: &AppHandle) {
-    let mut rx = app.state::<AppState>().engine.scripts.subscribe();
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(()) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                Err(_) => return,
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            while rx.try_recv().is_ok() {}
-            let _ = app.emit("scripts-changed", ());
-        }
-    });
 }
 
 #[derive(Clone, Serialize)]

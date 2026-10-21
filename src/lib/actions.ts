@@ -91,16 +91,6 @@ export async function sendDraft(d: Draft) {
   selectNew(await api.sendRequest(draftToRequest(d)));
 }
 
-export function compareWith(id: number) {
-  const { compareMark, markForCompare, openDiff } = useUi.getState();
-  if (compareMark === null || compareMark === id) {
-    markForCompare(id);
-    toast(`Marked #${id} for comparison`);
-  } else {
-    openDiff(compareMark, id);
-  }
-}
-
 const HAR = [{ name: "HTTP Archive", extensions: ["har"] }];
 // .ppsession is the extension sessions had before the app was renamed.
 const SESSION = [{ name: "ProxaLens Session", extensions: ["proxalens", "ppsession"] }];

@@ -2,7 +2,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-export type FlowState = "inProgress" | "completed" | "failed" | "webSocket" | "tunnel" | "blocked" | "paused";
+export type FlowState = "inProgress" | "completed" | "failed" | "webSocket" | "tunnel" | "blocked";
 
 export interface FlowMeta {
   id: number;
@@ -40,8 +40,6 @@ export interface BodyView {
   /** Size on the wire before decoding. */
   encodedSize?: number | null;
   decodeError?: string | null;
-  /** Protobuf / gRPC body decoded to JSON. */
-  protobuf?: { json: string; message: string | null; notes: string[] } | null;
 }
 
 export interface WsMessageView {
@@ -97,17 +95,8 @@ export interface Settings {
     latencyMs: number;
     hosts: string[];
   };
-  protobuf: { hosts: string; paths: string[] }[];
   allowLan: boolean;
   systemProxyMode: "manual" | "pac";
-  mcp: { enabled: boolean; port: number };
-}
-
-export interface McpInfo {
-  running: boolean;
-  url: string | null;
-  token: string;
-  claudeCommand: string | null;
 }
 
 export interface DeviceInfo {
@@ -159,58 +148,11 @@ export interface RewriteRule extends Matcher {
 
 export type BlockRule = Matcher;
 
-export interface BreakpointRule extends Matcher {
-  request: boolean;
-  response: boolean;
-}
-
 export interface Rules {
   mapLocal: MapLocalRule[];
   mapRemote: MapRemoteRule[];
   rewrite: RewriteRule[];
   block: BlockRule[];
-  breakpoints: BreakpointRule[];
-}
-
-export type Phase = "request" | "response";
-
-export interface BreakpointHit {
-  flowId: number;
-  phase: Phase;
-  method: string;
-  url: string;
-  status: number | null;
-  headers: [string, string][];
-  body: BodyView;
-  /** Epoch ms when the flow continues unchanged on its own. */
-  deadline: number;
-}
-
-export interface BreakpointEdits {
-  method: string;
-  url: string;
-  status: number;
-  headers: [string, string][];
-  body: number[];
-}
-
-export interface ScriptInfo {
-  fileName: string;
-  path: string;
-  id: string;
-  name: string;
-  matches: string[];
-  enabled: boolean;
-  error: string | null;
-  categories: string[];
-}
-
-export interface LogEntry {
-  id: number;
-  at: number;
-  script: string;
-  level: "log" | "info" | "warn" | "error";
-  message: string;
 }
 
 export type FlowBatch =
@@ -240,7 +182,6 @@ export const api = {
   },
   getSettings: () => invoke<Settings>("get_settings"),
   deviceInfo: () => invoke<DeviceInfo>("device_info"),
-  mcpInfo: () => invoke<McpInfo>("mcp_info"),
   installSimulatorCert: () => invoke<string>("install_simulator_cert"),
   setSettings: (settings: Settings) => invoke<Settings>("set_settings", { settings }),
   exportHar: (path: string, ids?: number[]) => invoke<number>("export_har", { path, ids }),
@@ -250,23 +191,6 @@ export const api = {
   sendRequest: (request: OutgoingRequest) => invoke<number | null>("send_request", { request }),
   getRules: () => invoke<Rules>("get_rules"),
   setRules: (rules: Rules) => invoke<Rules>("set_rules", { rules }),
-  listBreakpoints: () => invoke<BreakpointHit[]>("list_breakpoints"),
-  resumeBreakpoint: (flowId: number, phase: Phase, abort: boolean, edits?: BreakpointEdits) =>
-    invoke<boolean>("resume_breakpoint", { flowId, phase, abort, edits }),
-  resumeAllBreakpoints: () => invoke<void>("resume_all_breakpoints"),
-  onBreakpointsChanged: (cb: () => void) => listen("breakpoints-changed", cb),
-  listScripts: () => invoke<{ dir: string; scripts: ScriptInfo[] }>("list_scripts"),
-  reloadScripts: () => invoke<void>("reload_scripts"),
-  readScript: (fileName: string) => invoke<string>("read_script", { fileName }),
-  saveScript: (fileName: string, source: string) => invoke<void>("save_script", { fileName, source }),
-  createScript: (name: string, matches: string, body: string) =>
-    invoke<string>("create_script", { name, matches, body }),
-  deleteScript: (fileName: string) => invoke<void>("delete_script", { fileName }),
-  setScriptEnabled: (fileName: string, enabled: boolean) =>
-    invoke<void>("set_script_enabled", { fileName, enabled }),
-  scriptConsole: () => invoke<LogEntry[]>("script_console"),
-  clearScriptConsole: () => invoke<void>("clear_script_console"),
-  onScriptsChanged: (cb: () => void) => listen("scripts-changed", cb),
   /** Fires when the tray (or another command) changes proxy state. */
   onStatusChanged: (cb: () => void) => listen("status-changed", cb),
 };

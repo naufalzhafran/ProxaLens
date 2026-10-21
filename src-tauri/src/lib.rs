@@ -1,6 +1,5 @@
 pub mod commands;
 pub mod engine;
-pub mod mcp;
 mod tray;
 
 use std::sync::Arc;
@@ -57,9 +56,7 @@ pub fn run() {
             ));
             install_exit_hooks(marker);
 
-            let token = mcp::load_or_create_token(&data_dir)?;
-            let mcp_server = Arc::new(mcp::McpServer::new(engine.clone(), token));
-            let state = AppState::new(engine, sysproxy.clone(), mcp_server);
+            let state = AppState::new(engine, sysproxy.clone());
             // Layer 4: a previous run died with the system proxy still on.
             match sysproxy.recover_stale() {
                 Ok(Some(report)) if !report.restored.is_empty() => {
@@ -69,8 +66,6 @@ pub fn run() {
                 Err(e) => tracing::error!("could not restore previous proxy settings: {e}"),
             }
             app.manage(state);
-            commands::bridge_breakpoints(app.handle());
-            commands::bridge_scripts(app.handle());
             if let Err(e) = tray::install(app.handle()) {
                 tracing::warn!("could not create the menu bar icon: {e}");
             }
@@ -80,9 +75,6 @@ pub fn run() {
                 let state = handle.state::<AppState>();
                 if let Err(e) = commands::start(&state, state.engine.settings().port).await {
                     tracing::error!("proxy did not start: {e}");
-                }
-                if let Err(e) = commands::sync_mcp(&state).await {
-                    tracing::error!("MCP server did not start: {e}");
                 }
                 commands::notify_status(&handle).await;
             });
@@ -104,7 +96,6 @@ pub fn run() {
             commands::subscribe_flows,
             commands::get_settings,
             commands::device_info,
-            commands::mcp_info,
             commands::install_simulator_cert,
             commands::set_settings,
             commands::export_har,
@@ -114,18 +105,6 @@ pub fn run() {
             commands::send_request,
             commands::get_rules,
             commands::set_rules,
-            commands::list_breakpoints,
-            commands::resume_breakpoint,
-            commands::resume_all_breakpoints,
-            commands::list_scripts,
-            commands::reload_scripts,
-            commands::read_script,
-            commands::save_script,
-            commands::create_script,
-            commands::delete_script,
-            commands::set_script_enabled,
-            commands::script_console,
-            commands::clear_script_console,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

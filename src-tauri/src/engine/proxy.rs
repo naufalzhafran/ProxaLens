@@ -1,14 +1,13 @@
 //! hudsucker handlers that record traffic into the [`Store`].
 //!
-//! Port of httpmon's `internal/proxy/interceptor.go`, minus scripting (a
-//! later phase). Bodies are captured with a tee so streaming responses (SSE,
+//! Port of httpmon's `internal/proxy/interceptor.go`, minus scripting.
+//! Bodies are captured with a tee so streaming responses (SSE,
 //! downloads) keep flowing to the client. Bodies are stored as received;
 //! decoding happens when the UI asks (see `decode.rs`).
 //!
 //! For recorded flows the rules in `rules.rs` apply in this order:
-//! block → request rewrite → request breakpoint → Map Local (skips the
-//! upstream) → Map Remote → upstream → response rewrite → response
-//! breakpoint → throttle. Only flows a rule or breakpoint touches are
+//! block → request rewrite → Map Local (skips the upstream) → Map Remote →
+//! upstream → response rewrite → throttle. Only flows a rewrite touches are
 //! buffered; everything else streams.
 
 use std::collections::HashMap;
@@ -29,13 +28,11 @@ use hudsucker::{
 };
 use parking_lot::{Mutex, RwLock};
 
-use super::breakpoint::{Breakpoints, Edits, Hit, Phase, Resume};
 use super::decode;
 use super::rules::{
     self, CompiledRules, MapLocal, RequestParts, ResponseParts, normalize_url, rewrite_request,
     rewrite_response,
 };
-use super::script::{PauseWith, RequestOutcome, Responded, Scripts};
 use super::settings::Settings;
 use super::store::{
     FlowData, FlowId, FlowMeta, FlowState, Store, WS_MESSAGES_CAP, WS_PAYLOAD_CAP, WsDirection,
@@ -59,8 +56,6 @@ pub struct Recorder {
     pub body_cap: usize,
     pub settings: Arc<RwLock<Settings>>,
     pub rules: Arc<RwLock<Arc<CompiledRules>>>,
-    pub breakpoints: Arc<Breakpoints>,
-    pub scripts: Arc<Scripts>,
     pub processes: Arc<super::procinfo::Resolver>,
     pub local: LocalPages,
     /// Upgraded WebSocket connections, keyed by the client's socket address.
@@ -77,14 +72,11 @@ pub struct LocalPages {
 }
 
 impl Recorder {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: Arc<Store>,
         body_cap: usize,
         settings: Arc<RwLock<Settings>>,
         rules: Arc<RwLock<Arc<CompiledRules>>>,
-        breakpoints: Arc<Breakpoints>,
-        scripts: Arc<Scripts>,
         processes: Arc<super::procinfo::Resolver>,
         local: LocalPages,
     ) -> Arc<Self> {
@@ -93,8 +85,6 @@ impl Recorder {
             body_cap,
             settings,
             rules,
-            breakpoints,
-            scripts,
             processes,
             local,
             websockets: Mutex::new(HashMap::new()),
@@ -110,13 +100,10 @@ pub struct FlowHandler {
     flow: Option<(FlowId, Instant)>,
     host: String,
     method: String,
-    /// The request URL after rules and breakpoint edits, default ports removed.
+    /// The request URL after rules, default ports removed.
     url: String,
     /// Rules as they were when the request arrived.
     rules: Option<Arc<CompiledRules>>,
-    break_on_response: bool,
-    /// Set when a script answered the request itself.
-    skip_response_scripts: bool,
 }
 
 impl FlowHandler {
@@ -128,18 +115,7 @@ impl FlowHandler {
             method: String::new(),
             url: String::new(),
             rules: None,
-            break_on_response: false,
-            skip_response_scripts: false,
         }
-    }
-
-    fn pause_with(&self) -> Option<PauseWith> {
-        let (flow_id, _) = self.flow?;
-        Some(PauseWith {
-            breakpoints: self.rec.breakpoints.clone(),
-            flow_id,
-            handle: tokio::runtime::Handle::current(),
-        })
     }
 
     /// Notes on the flow that a rule changed it ("Map Local", …).
@@ -162,43 +138,6 @@ impl FlowHandler {
                 m.error = Some(error.to_string());
             });
         }
-    }
-
-    /// Pauses at a breakpoint, marking the flow as paused meanwhile.
-    async fn pause(
-        &self,
-        phase: Phase,
-        status: Option<u16>,
-        headers: &[(String, String)],
-        body: &[u8],
-    ) -> Resume {
-        let Some((id, _)) = self.flow else {
-            return Resume::Continue(None);
-        };
-        self.rec
-            .store
-            .update(id, |m, _| m.state = FlowState::Paused);
-        let resume = self
-            .rec
-            .breakpoints
-            .pause(Hit {
-                flow_id: id,
-                phase,
-                method: self.method.clone(),
-                url: self.url.clone(),
-                status,
-                headers: headers.to_vec(),
-                body: body.to_vec(),
-                deadline: 0,
-            })
-            .await;
-        self.rec.store.update(id, |m, _| {
-            if m.state == FlowState::Paused {
-                m.state = FlowState::InProgress;
-            }
-        });
-        self.tag("Breakpoint");
-        resume
     }
 
     /// Records a CONNECT that won't be decrypted (blocked or tunnelled).
@@ -279,7 +218,7 @@ fn is_websocket_upgrade(req: &Request<Body>) -> bool {
         .is_some_and(|v| v.eq_ignore_ascii_case("websocket"))
 }
 
-/// Reads a whole body; used only for flows a rule or breakpoint edits.
+/// Reads a whole body; used only for flows a rewrite edits.
 async fn collect(body: Body) -> Result<Vec<u8>, String> {
     use http_body_util::BodyExt;
     body.collect()
@@ -330,8 +269,6 @@ fn text_response(status: StatusCode, msg: &str) -> Response<Body> {
         .body(Body::from(format!("ProxaLens: {msg}")))
         .expect("static response")
 }
-
-const ABORTED: &str = "Aborted at a breakpoint";
 
 fn build_response(status: u16, headers: &[(String, String)], body: Vec<u8>) -> Response<Body> {
     let mut res = Response::new(Body::empty());
@@ -578,12 +515,9 @@ impl HttpHandler for FlowHandler {
         }
 
         let (mut parts, mut body) = req.into_parts();
-        let (break_request, break_response) = rules.breakpoint(&self.method, &self.url);
-        self.break_on_response = break_response;
         let rewrites = rules.rewrites(&self.method, &self.url, true);
-        let scripts = self.rec.scripts.matching(&self.url, Phase::Request);
 
-        if break_request || !rewrites.is_empty() || !scripts.is_empty() {
+        if !rewrites.is_empty() {
             let bytes = match collect(body).await {
                 Ok(b) => b,
                 Err(e) => {
@@ -597,84 +531,13 @@ impl HttpHandler for FlowHandler {
                 headers: headers_vec(&parts.headers),
                 body: bytes,
             };
-            let edits_body = break_request
-                || !scripts.is_empty()
-                || rewrites.iter().any(|(r, _)| r.target.is_body());
-            if edits_body {
+            if rewrites.iter().any(|(r, _)| r.target.is_body()) {
                 decode_for_edit(&mut req.headers, &mut req.body);
             }
-            if !rewrites.is_empty() {
-                let before = req.clone();
-                rewrite_request(&mut req, &rewrites);
-                if req != before {
-                    self.tag("Rewrite");
-                }
-            }
-            if !scripts.is_empty() {
-                let engine = self.rec.scripts.clone();
-                let pause = self.pause_with();
-                let before = req.clone();
-                let mut changed = req.clone();
-                let ran = tokio::task::spawn_blocking(move || {
-                    let outcome = engine.run_request(&scripts, &mut changed, pause.as_ref());
-                    (changed, outcome)
-                })
-                .await;
-                if let Ok((changed, outcome)) = ran {
-                    if changed != before {
-                        self.tag("Script");
-                    }
-                    req = changed;
-                    match outcome {
-                        RequestOutcome::Continue => {}
-                        RequestOutcome::Block => {
-                            self.tag("Script");
-                            self.rec.store.update(id, |m, _| {
-                                m.state = FlowState::Blocked;
-                                m.status = Some(403);
-                                m.duration_ms = Some(elapsed_ms(started));
-                                m.error = Some("Blocked by a script".into());
-                            });
-                            return text_response(StatusCode::FORBIDDEN, "Blocked by a script.")
-                                .into();
-                        }
-                        RequestOutcome::Respond(Responded(r)) => {
-                            self.tag("Script");
-                            self.rules = Some(rules.clone());
-                            self.skip_response_scripts = true;
-                            let res = build_response(r.status, &r.headers, r.body);
-                            return self.finish_response(res).await.into();
-                        }
-                    }
-                }
-            }
-            if break_request {
-                match self
-                    .pause(Phase::Request, None, &req.headers, &req.body)
-                    .await
-                {
-                    Resume::Abort => {
-                        self.fail(ABORTED);
-                        return text_response(StatusCode::BAD_GATEWAY, ABORTED).into();
-                    }
-                    Resume::Continue(Some(Edits {
-                        method,
-                        url,
-                        headers,
-                        body,
-                        ..
-                    })) => {
-                        if !method.trim().is_empty() {
-                            req.method = method.trim().to_ascii_uppercase();
-                        }
-                        if !url.trim().is_empty() {
-                            req.url = url.trim().to_string();
-                        }
-                        req.headers = headers;
-                        req.body = body;
-                    }
-                    Resume::Continue(None) => {}
-                }
+            let before = req.clone();
+            rewrite_request(&mut req, &rewrites);
+            if req != before {
+                self.tag("Rewrite");
             }
 
             if let Ok(m) = Method::from_bytes(req.method.as_bytes()) {
@@ -766,7 +629,7 @@ impl HttpHandler for FlowHandler {
 }
 
 impl FlowHandler {
-    /// Response side: rewrite, breakpoint, throttle, then record.
+    /// Response side: rewrite, throttle, then record.
     async fn finish_response(&mut self, res: Response<Body>) -> Response<Body> {
         let ttfb = self.flow.map(|(_, started)| elapsed_ms(started));
         let mut res = res;
@@ -774,12 +637,7 @@ impl FlowHandler {
             && self.flow.is_some()
         {
             let rewrites = rules.rewrites(&self.method, &self.url, false);
-            let scripts = if self.skip_response_scripts {
-                Vec::new()
-            } else {
-                self.rec.scripts.matching(&self.url, Phase::Response)
-            };
-            if !rewrites.is_empty() || self.break_on_response || !scripts.is_empty() {
+            if !rewrites.is_empty() {
                 let (mut parts, body) = res.into_parts();
                 let bytes = match collect(body).await {
                     Ok(b) => b,
@@ -793,61 +651,13 @@ impl FlowHandler {
                     headers: headers_vec(&parts.headers),
                     body: bytes,
                 };
-                if self.break_on_response
-                    || !scripts.is_empty()
-                    || rewrites.iter().any(|(rw, _)| rw.target.is_body())
-                {
+                if rewrites.iter().any(|(rw, _)| rw.target.is_body()) {
                     decode_for_edit(&mut r.headers, &mut r.body);
                 }
-                if !rewrites.is_empty() {
-                    let before = r.clone();
-                    rewrite_response(&mut r, &rewrites);
-                    if r != before {
-                        self.tag("Rewrite");
-                    }
-                }
-                if !scripts.is_empty() {
-                    let engine = self.rec.scripts.clone();
-                    let pause = self.pause_with();
-                    let (method, url) = (self.method.clone(), self.url.clone());
-                    let before = r.clone();
-                    let mut changed = r.clone();
-                    let ran = tokio::task::spawn_blocking(move || {
-                        let responded = engine.run_response(
-                            &scripts,
-                            &method,
-                            &url,
-                            &mut changed,
-                            pause.as_ref(),
-                        );
-                        (changed, responded)
-                    })
-                    .await;
-                    if let Ok((changed, responded)) = ran {
-                        r = responded.map_or(changed, |Responded(x)| x);
-                        if r != before {
-                            self.tag("Script");
-                        }
-                    }
-                }
-                if self.break_on_response {
-                    match self
-                        .pause(Phase::Response, Some(r.status), &r.headers, &r.body)
-                        .await
-                    {
-                        Resume::Abort => {
-                            self.fail(ABORTED);
-                            return text_response(StatusCode::BAD_GATEWAY, ABORTED);
-                        }
-                        Resume::Continue(Some(e)) => {
-                            if e.status != 0 {
-                                r.status = e.status;
-                            }
-                            r.headers = e.headers;
-                            r.body = e.body;
-                        }
-                        Resume::Continue(None) => {}
-                    }
+                let before = r.clone();
+                rewrite_response(&mut r, &rewrites);
+                if r != before {
+                    self.tag("Rewrite");
                 }
                 parts.status = StatusCode::from_u16(r.status).unwrap_or(parts.status);
                 let body_len = (self.method != "HEAD").then_some(r.body.len());

@@ -19,15 +19,12 @@ pub struct Settings {
     pub block_list: HostList,
     pub allow_list: HostList,
     pub throttle: Throttle,
-    /// `.proto` files for decoding protobuf / gRPC bodies by name.
-    pub protobuf: Vec<super::proto::ProtoSource>,
     /// Accept connections from other devices on the network (phones,
     /// tablets). Off by default: anyone who can reach the Mac could use it.
     pub allow_lan: bool,
     /// Point the system at the proxy with HTTP/HTTPS proxy settings or an
     /// automatic configuration (PAC) URL.
     pub system_proxy_mode: super::sysproxy::Mode,
-    pub mcp: Mcp,
 }
 
 impl Default for Settings {
@@ -38,27 +35,8 @@ impl Default for Settings {
             block_list: HostList::default(),
             allow_list: HostList::default(),
             throttle: Throttle::default(),
-            protobuf: Vec::new(),
             allow_lan: false,
             system_proxy_mode: super::sysproxy::Mode::default(),
-            mcp: Mcp::default(),
-        }
-    }
-}
-
-/// The MCP server for LLM agents (see `src/mcp.rs`).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct Mcp {
-    pub enabled: bool,
-    pub port: u16,
-}
-
-impl Default for Mcp {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            port: 9091,
         }
     }
 }
@@ -232,7 +210,32 @@ fn matches_any(patterns: &[String], host: &str) -> bool {
 /// exactly, `*.example.com` matches subdomains only (as in httpmon), `*`
 /// matches everything and `*shopee*` matches any host containing `shopee`.
 pub fn match_host(pattern: &str, host: &str) -> bool {
-    super::script::wildcard(pattern.trim(), host)
+    wildcard(pattern.trim(), host)
+}
+
+/// `*` and `?` wildcard match, case-insensitive.
+fn wildcard(pattern: &str, s: &str) -> bool {
+    let p: Vec<char> = pattern.to_lowercase().chars().collect();
+    let s: Vec<char> = s.to_lowercase().chars().collect();
+    let (mut pi, mut si) = (0, 0);
+    let (mut star, mut mark) = (None, 0);
+    while si < s.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == s[si]) {
+            pi += 1;
+            si += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star = Some(pi);
+            mark = si;
+            pi += 1;
+        } else if let Some(st) = star {
+            pi = st + 1;
+            mark += 1;
+            si = mark;
+        } else {
+            return false;
+        }
+    }
+    p[pi..].iter().all(|c| *c == '*')
 }
 
 #[cfg(test)]
