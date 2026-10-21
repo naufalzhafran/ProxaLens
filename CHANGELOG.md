@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.2 (2026-10-21)
+
+A lighter app: rarely used features are removed.
+
+- Scripts (JavaScript `onRequest` / `onResponse` hooks and their editor) are gone, along with the ⌘J shortcut.
+- The MCP server for AI agents is gone.
+- Protobuf and gRPC bodies are no longer decoded; they show as hex like any other binary body. The Protobuf settings tab is gone.
+- Breakpoint rules are gone. Map Local, Map Remote, Rewrite and Block rules work as before.
+- Compare two flows is gone from the flow menus.
+- Existing settings and rules still load; the fields for removed features are ignored.
+
 ## 0.3.1 (2026-10-19)
 
 Hotfix for Copy as cURL and confirmation dialogs.
