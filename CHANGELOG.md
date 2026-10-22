@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3 (2026-10-22)
+
+Hotfix for sites that send large HTTP/2 headers.
+
+- Gemini and other sites with very large HTTP/2 headers load again. They used to fail with "upstream request failed: … unspecific protocol error". The proxy now accepts up to 256 KiB of headers, matching Chrome, instead of 16 KiB.
+
 ## 0.3.2 (2026-10-21)
 
 A lighter app: rarely used features are removed.
