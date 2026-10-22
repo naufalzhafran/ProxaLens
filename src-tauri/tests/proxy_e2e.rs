@@ -9,9 +9,12 @@ use std::time::Duration;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hudsucker::hyper::{
-    Request, Response, body::Incoming, server::conn::http1, service::service_fn,
+    Request, Response,
+    body::Incoming,
+    server::conn::{http1, http2},
+    service::service_fn,
 };
-use hudsucker::hyper_util::rt::TokioIo;
+use hudsucker::hyper_util::rt::{TokioExecutor, TokioIo};
 use hudsucker::rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use hudsucker::rustls::ServerConfig;
 use hudsucker::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -39,6 +42,9 @@ async fn route(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallib
             .body(Full::new(Bytes::from_static(br#"{"hello":"world"}"#))),
         "/echo" => Response::builder().status(201).body(Full::new(body)),
         "/auth" => Response::builder().body(Full::new(Bytes::from(auth))),
+        "/huge-headers" => Response::builder()
+            .header("x-padding", "p".repeat(30_000))
+            .body(Full::new(Bytes::from_static(b"ok"))),
         "/big" => Response::builder().body(Full::new(Bytes::from(vec![b'x'; 10_000]))),
         "/gzip" => {
             use std::io::Write;
@@ -72,6 +78,12 @@ async fn http_upstream() -> SocketAddr {
 
 /// An HTTPS upstream for "localhost", signed by a throwaway test root.
 async fn https_upstream() -> (SocketAddr, CertificateDer<'static>) {
+    https_upstream_with(false).await
+}
+
+/// Like `https_upstream`; with `h2` it offers HTTP/2 only.
+async fn https_upstream_with(h2: bool) -> (SocketAddr, CertificateDer<'static>) {
+    let _ = hudsucker::rustls::crypto::aws_lc_rs::default_provider().install_default();
     let root_key = KeyPair::generate().unwrap();
     let mut root = CertificateParams::default();
     root.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
@@ -90,7 +102,8 @@ async fn https_upstream() -> (SocketAddr, CertificateDer<'static>) {
             PrivateKeyDer::from(PrivatePkcs8KeyDer::from(leaf_key.serialize_der())),
         )
         .unwrap();
-    cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+    let alpn: &[u8] = if h2 { b"h2" } else { b"http/1.1" };
+    cfg.alpn_protocols = vec![alpn.to_vec()];
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(cfg));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -100,11 +113,19 @@ async fn https_upstream() -> (SocketAddr, CertificateDer<'static>) {
             let (tcp, _) = listener.accept().await.unwrap();
             let acceptor = acceptor.clone();
             tokio::spawn(async move {
-                if let Ok(tls) = acceptor.accept(tcp).await {
-                    let _ = http1::Builder::new()
-                        .serve_connection(TokioIo::new(tls), service_fn(route))
-                        .await;
-                }
+                let Ok(tls) = acceptor.accept(tcp).await else {
+                    return;
+                };
+                let io = TokioIo::new(tls);
+                let _ = if h2 {
+                    http2::Builder::new(TokioExecutor::new())
+                        .serve_connection(io, service_fn(route))
+                        .await
+                } else {
+                    http1::Builder::new()
+                        .serve_connection(io, service_fn(route))
+                        .await
+                };
             });
         }
     });
@@ -239,6 +260,23 @@ async fn intercepts_https_with_generated_certificates() {
             .iter()
             .all(|f| f.method != "CONNECT")
     );
+}
+
+#[tokio::test]
+async fn accepts_large_http2_response_headers() {
+    // Gemini sends about 26 KiB of headers, over hyper's 16 KiB default.
+    let (up, root) = https_upstream_with(true).await;
+    let h = harness(vec![root], None).await;
+
+    let url = format!("https://localhost:{}/huge-headers", up.port());
+    let res = h.client.get(&url).send().await.unwrap();
+    assert_eq!(res.status(), 200);
+    assert_eq!(res.headers()["x-padding"].len(), 30_000);
+    assert_eq!(res.text().await.unwrap(), "ok");
+
+    let f = h.wait_done("/huge-headers").await;
+    assert_eq!(f.status, Some(200));
+    assert_eq!(f.error, None);
 }
 
 #[tokio::test]

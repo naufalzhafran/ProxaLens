@@ -258,6 +258,8 @@ impl Engine {
             .with_listener(listener)
             .with_ca(self.ca.authority()?)
             .with_http_connector(https)
+            .with_client(upstream_client())
+            .with_server(proxy_server())
             .with_http_handler(handler.clone())
             .with_websocket_handler(handler)
             .with_websocket_connector(Connector::Rustls(Arc::new(tls)))
@@ -291,6 +293,35 @@ impl Engine {
             .filter(|r| !r.task.is_finished())
             .map(|r| r.addr)
     }
+}
+
+/// Largest HTTP/2 header block accepted, matching Chrome. hyper's default
+/// is 16 KiB, and some sites (Gemini sends about 26 KiB of response headers)
+/// go over it, which h2 reports as "unspecific protocol error".
+const MAX_H2_HEADER_LIST: u32 = 256 * 1024;
+
+/// hudsucker's default upstream client, with room for large HTTP/2 headers.
+fn upstream_client() -> hudsucker::hyper_util::client::legacy::Builder {
+    use hudsucker::hyper_util::client::legacy::Client;
+    use hudsucker::hyper_util::rt::TokioExecutor;
+    let mut b = Client::builder(TokioExecutor::new());
+    b.http1_title_case_headers(true)
+        .http1_preserve_header_case(true)
+        .http2_max_header_list_size(MAX_H2_HEADER_LIST);
+    b
+}
+
+/// hudsucker's default server for clients, with room for large HTTP/2 headers.
+fn proxy_server()
+-> hudsucker::hyper_util::server::conn::auto::Builder<hudsucker::hyper_util::rt::TokioExecutor> {
+    use hudsucker::hyper_util::rt::TokioExecutor;
+    use hudsucker::hyper_util::server::conn::auto::Builder;
+    let mut b = Builder::new(TokioExecutor::new());
+    b.http1()
+        .title_case_headers(true)
+        .preserve_header_case(true);
+    b.http2().max_header_list_size(MAX_H2_HEADER_LIST);
+    b
 }
 
 /// IPv4 addresses of this Mac on its networks (for device setup).
