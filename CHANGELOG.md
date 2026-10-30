@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 (2026-10-30)
+
+Hotfix release: see where each request's time goes, and read more kinds of bodies.
+
+- The Timing tab breaks a request down into blocked, DNS, connect, TLS, send, waiting and download, and says when a connection was reused or a request was answered locally. A new Waterfall column in the flow list draws the same phases on a shared timeline; hide it from the column menu if you don't want it.
+- HAR exports now include DNS, connect and TLS timings, sessions keep the exact phases, and HAR files from Chrome and other tools bring theirs along.
+- Form bodies show as fields, multipart uploads as parts with inline image previews, and GraphQL requests show their operation, query, variables and extensions, batches included.
+- Protobuf and gRPC bodies are decoded again, this time without needing a schema: field numbers are the keys, nested messages are expanded, and gRPC frames and trailers are split out. grpc-web-text is decoded from base64 first.
+
 ## 0.4.0 (2026-10-30)
 
 Quitting ProxaLens always gives the network back.
