@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.2 (2026-10-30)
+
+Hotfix release: mock any API you have captured.
+
+- A new Mocks page (⌘2) sits next to Traffic. Right-click a request and choose "Mock This API…", or press Mock… in the inspector, and the API is kept there with its real response filled in, ready to change.
+- While a mock is on, the proxy answers that API with your status, headers, body and optional delay instead of the server. Switch it off and the server answers again. Mocks are checked before Map Local rules and are kept in mocks.json.
+- Every call the API receives is listed under the mock, newest first, marked Mocked or Real, with the response the client actually got and a badge for calls you haven't looked at yet. The kept request can be edited and sent again from the page.
+
 ## 0.4.1 (2026-10-30)
 
 Hotfix release: see where each request's time goes, and read more kinds of bodies.
