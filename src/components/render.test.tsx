@@ -11,7 +11,7 @@ describe("BodyViewer", () => {
   it("shows JSON as a tree with tree/text/hex modes", () => {
     const html = renderToStaticMarkup(<BodyViewer body={text('{"name":"test","n":[1,2]}')} contentType="application/json" />);
     expect(html).toContain("&quot;name&quot;");
-    expect(html).toMatch(/>tree<.*>text<.*>hex</);
+    expect(html).toMatch(/>Tree<.*>Text<.*>Hex</);
   });
 
   it("previews images and hex-dumps binary", () => {

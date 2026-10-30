@@ -1,5 +1,6 @@
 // Helpers for presenting captured HTTP messages in the inspector.
 import type { BodyView } from "../api";
+import { isGraphqlRequest, isProtobuf, multipartBoundary } from "./decoders";
 
 export function headerValue(headers: [string, string][], name: string): string | null {
   const n = name.toLowerCase();
@@ -83,17 +84,19 @@ export function hexDump(bytes: Uint8Array, limit = bytes.length): string {
   return lines.join("\n");
 }
 
-export type BodyKind = "json" | "image" | "text" | "binary" | "empty";
+export type BodyKind = "json" | "graphql" | "form" | "multipart" | "protobuf" | "image" | "text" | "binary" | "empty";
 
 export function bodyKind(body: BodyView, contentType: string | null): BodyKind {
   if (body.size === 0) return "empty";
   const ct = (contentType ?? "").toLowerCase();
   if (ct.startsWith("image/")) return "image";
+  if (isProtobuf(ct)) return "protobuf";
+  if (ct.startsWith("multipart/") && multipartBoundary(ct)) return "multipart";
   if (body.text === null) return "binary";
+  if (ct.startsWith("application/x-www-form-urlencoded")) return "form";
   if (ct.includes("json") || /^\s*[[{]/.test(body.text)) {
     try {
-      JSON.parse(body.text);
-      return "json";
+      return isGraphqlRequest(JSON.parse(body.text)) ? "graphql" : "json";
     } catch {
       /* fall through */
     }

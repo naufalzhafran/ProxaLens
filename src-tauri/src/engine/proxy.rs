@@ -39,6 +39,7 @@ use super::store::{
     WsMessage,
 };
 use super::throttle::ThrottleBody;
+use super::timing::{self, ConnTiming};
 
 /// Bodies larger than this are recorded truncated (httpmon uses 5 MB too).
 pub const DEFAULT_BODY_CAP: usize = 5 * 1024 * 1024;
@@ -166,6 +167,7 @@ impl FlowHandler {
             client_addr: ctx.client_addr.to_string(),
             error: (state == FlowState::Blocked).then(|| BLOCKED.to_string()),
             ws_message_count: 0,
+            timings: None,
             tags: Vec::new(),
             process: None,
             pid: None,
@@ -474,6 +476,7 @@ impl HttpHandler for FlowHandler {
             client_addr: ctx.client_addr.to_string(),
             error: None,
             ws_message_count: 0,
+            timings: None,
             tags: Vec::new(),
             process: None,
             pid: None,
@@ -589,10 +592,12 @@ impl HttpHandler for FlowHandler {
 
         let store = self.rec.store.clone();
         let body = CaptureBody::wrap(body, self.rec.body_cap, move |cap| {
+            let sent = elapsed_ms(started);
             store.update(id, |m, d| {
                 m.request_size = cap.total;
                 d.request_body = cap.bytes;
                 d.request_body_truncated = cap.truncated;
+                d.request_sent_ms = Some(sent);
             });
         });
         Request::from_parts(parts, body).into()
@@ -632,6 +637,14 @@ impl FlowHandler {
     /// Response side: rewrite, throttle, then record.
     async fn finish_response(&mut self, res: Response<Body>) -> Response<Body> {
         let ttfb = self.flow.map(|(_, started)| elapsed_ms(started));
+        // The connection's timings belong to the first flow that sees them;
+        // every later flow on that connection reused it.
+        let conn = res.extensions().get::<ConnTiming>().cloned();
+        let reused = conn.as_ref().is_some_and(|c| !c.claim());
+        let phases = self
+            .flow
+            .zip(conn.filter(|_| !reused))
+            .map(|((_, started), c)| c.phases(started));
         let mut res = res;
         if let Some(rules) = self.rules.clone()
             && self.flow.is_some()
@@ -694,6 +707,7 @@ impl FlowHandler {
             m.content_type = content_type;
             m.http_version = version.into();
             d.response_headers = headers;
+            m.timings = ttfb.map(|t| timing::split(t, d.request_sent_ms, phases, reused));
         });
 
         let store = self.rec.store.clone();
@@ -701,7 +715,11 @@ impl FlowHandler {
         let body = CaptureBody::wrap(body, self.rec.body_cap, move |cap| {
             store.update(id, |m, d| {
                 m.response_size = cap.total;
-                m.duration_ms = Some(elapsed_ms(started));
+                let duration = elapsed_ms(started);
+                m.duration_ms = Some(duration);
+                if let Some(t) = m.timings.as_mut() {
+                    t.receive = Some((duration - m.ttfb_ms.unwrap_or(duration)).max(0.0));
+                }
                 match cap.error {
                     None => m.state = FlowState::Completed,
                     Some(e) => {

@@ -2,7 +2,18 @@
 // remembered across launches.
 import { create } from "zustand";
 
-export type ColumnKey = "id" | "app" | "method" | "status" | "host" | "path" | "type" | "size" | "time" | "started";
+export type ColumnKey =
+  | "id"
+  | "app"
+  | "method"
+  | "status"
+  | "host"
+  | "path"
+  | "type"
+  | "size"
+  | "time"
+  | "waterfall"
+  | "started";
 export interface Sort {
   key: ColumnKey;
   desc: boolean;

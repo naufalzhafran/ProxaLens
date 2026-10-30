@@ -28,6 +28,21 @@ export interface FlowMeta {
   /** The app that made the request, when known. */
   process: string | null;
   pid: number | null;
+  /** Where the time went; null until response headers arrive. */
+  timings: Timings | null;
+}
+
+/** Phases of a flow in milliseconds, in this order; null when a phase did not happen. */
+export interface Timings {
+  blocked: number | null;
+  dns: number | null;
+  connect: number | null;
+  tls: number | null;
+  send: number | null;
+  wait: number | null;
+  receive: number | null;
+  /** The request went over a connection an earlier flow opened. */
+  reusedConnection: boolean;
 }
 
 export interface BodyView {

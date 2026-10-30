@@ -1,6 +1,6 @@
 // Right pane: request on top, response below, each with tabs.
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Copy as CopyIcon } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { api, errorMessage, type BodyView, type FlowDetail, type WsMessageView } from "../api";
 import { editAndRepeat, repeat } from "../lib/actions";
 import { copy } from "../lib/clipboard";
@@ -10,6 +10,7 @@ import { applyMatches, findMatches, langFor, MATCH_LIMIT, tokenize, type Lang } 
 import {
   bodyBytes,
   bodyKind,
+  type BodyKind,
   headerValue,
   hexDump,
   imageDataUrl,
@@ -21,8 +22,11 @@ import {
   type Cookie,
 } from "../lib/http";
 import { useFlows } from "../state/flows";
+import { FormView, GraphqlView, MultipartView, ProtoView } from "./BodyViews";
 import { JsonTree } from "./JsonTree";
-import { button, Chip, ContextMenu, HUE_BADGE, input, Tabs, useResizable } from "./ui";
+import { CopyRows, KeyValues, Pre } from "./KeyValues";
+import { Timing } from "./Timing";
+import { button, Chip, HUE_BADGE, input, Tabs, useResizable } from "./ui";
 
 const pill = `${button} rounded-full! px-3`;
 
@@ -213,21 +217,6 @@ function pathOf(url: string): string {
   }
 }
 
-function KeyValues({ rows, empty }: { rows: [string, string][]; empty: string }) {
-  if (!rows.length) return <p className="text-muted">{empty}</p>;
-  return (
-    <CopyRows
-      rows={rows.map(([k, v]) => ({
-        name: k,
-        value: v,
-        line: `${k}: ${v}`,
-        cell: <span className="break-all">{v}</span>,
-      }))}
-      lineLabel="Copy as “Name: value”"
-    />
-  );
-}
-
 function Cookies({ cookies }: { cookies: Cookie[] }) {
   if (!cookies.length) return <p className="text-muted">No cookies</p>;
   return (
@@ -247,61 +236,6 @@ function Cookies({ cookies }: { cookies: Cookie[] }) {
       }))}
       lineLabel="Copy as “name=value”"
     />
-  );
-}
-
-interface CopyRow {
-  name: string;
-  value: string;
-  line: string;
-  cell: React.ReactNode;
-}
-
-/** Name/value rows with a copy button on hover and a copy context menu. */
-function CopyRows({ rows, lineLabel }: { rows: CopyRow[]; lineLabel: string }) {
-  const [menu, setMenu] = useState<{ x: number; y: number; row: CopyRow } | null>(null);
-  return (
-    <>
-      <table className="w-full font-mono">
-        <tbody>
-          {rows.map((r, i) => (
-            <tr
-              key={i}
-              className="group border-b border-line/70 align-top last:border-0"
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setMenu({ x: e.clientX, y: e.clientY, row: r });
-              }}
-            >
-              <td className="w-1/3 py-1 pr-3 pl-1 break-all text-muted">{r.name}</td>
-              <td className="py-1">{r.cell}</td>
-              <td className="w-6 py-1 text-right">
-                <button
-                  aria-label={`Copy ${r.name}`}
-                  title="Copy value"
-                  className="invisible rounded p-0.5 text-muted group-hover:visible hover:text-ink focus-visible:visible"
-                  onClick={() => copy(r.value, r.name)}
-                >
-                  <CopyIcon size={12} />
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(null)}
-          items={[
-            { label: "Copy Value", onSelect: () => copy(menu.row.value, menu.row.name) },
-            { label: "Copy Name", onSelect: () => copy(menu.row.name, "name") },
-            { label: lineLabel, onSelect: () => copy(menu.row.line, menu.row.name) },
-          ]}
-        />
-      )}
-    </>
   );
 }
 
@@ -336,31 +270,64 @@ function EmptyState() {
   );
 }
 
-type BodyMode = "tree" | "text" | "hex" | "preview";
+type BodyMode = "tree" | "text" | "hex" | "preview" | "form" | "parts" | "graphql" | "proto";
 const HEX_PAGE = 64 * 1024;
+
+/** The views a body offers, best first. */
+export function modesFor(kind: BodyKind, hasText: boolean): BodyMode[] {
+  switch (kind) {
+    case "json":
+      return ["tree", "text", "hex"];
+    case "graphql":
+      return ["graphql", "tree", "text", "hex"];
+    case "form":
+      return ["form", "text", "hex"];
+    case "multipart":
+      return hasText ? ["parts", "text", "hex"] : ["parts", "hex"];
+    case "protobuf":
+      return ["proto", "hex"];
+    case "image":
+      return ["preview", "hex"];
+    case "text":
+      return ["text", "hex"];
+    default:
+      return ["hex"];
+  }
+}
+
+const MODE_LABELS: Record<BodyMode, string> = {
+  tree: "Tree",
+  text: "Text",
+  hex: "Hex",
+  preview: "Preview",
+  form: "Form",
+  parts: "Parts",
+  graphql: "GraphQL",
+  proto: "Protobuf",
+};
 
 export function BodyViewer({ body, contentType }: { body: BodyView; contentType: string | null }) {
   const kind = useMemo(() => bodyKind(body, contentType), [body, contentType]);
-  const modes: BodyMode[] =
-    kind === "json" ? ["tree", "text", "hex"] : kind === "image" ? ["preview", "hex"] : kind === "text" ? ["text", "hex"] : ["hex"];
+  const modes = modesFor(kind, body.text !== null);
   const [preferred, setPreferred] = useState<BodyMode | null>(null);
   const [hexLimit, setHexLimit] = useState(HEX_PAGE);
   const mode = preferred && modes.includes(preferred) ? preferred : modes[0];
   useEffect(() => setHexLimit(HEX_PAGE), [body]);
 
-  const parsed = useMemo(() => (kind === "json" ? JSON.parse(body.text!) : null), [kind, body.text]);
+  const isJson = kind === "json" || kind === "graphql";
+  const parsed = useMemo(() => (isJson ? JSON.parse(body.text!) : null), [isJson, body.text]);
   const bytes = useMemo(() => (mode === "hex" ? bodyBytes(body) : null), [mode, body]);
 
   // Find works on text; searching a tree shows it as text so every match is visible.
   const [query, setQuery] = useState("");
   const [current, setCurrent] = useState(0);
-  const searchable = kind === "json" || kind === "text";
-  const shown: BodyMode = query && mode === "tree" ? "text" : mode;
+  const searchable = isJson || kind === "text" || kind === "form";
+  const shown: BodyMode = query && (mode === "tree" || mode === "graphql" || mode === "form") ? "text" : mode;
   const text = useMemo(() => {
     if (shown !== "text") return "";
-    return kind === "json" ? JSON.stringify(parsed, null, 2) : (body.text ?? "");
-  }, [shown, kind, parsed, body.text]);
-  const lang: Lang = langFor(contentType, kind === "json");
+    return isJson ? JSON.stringify(parsed, null, 2) : (body.text ?? "");
+  }, [shown, isJson, parsed, body.text]);
+  const lang: Lang = langFor(contentType, isJson);
   const ranges = useMemo(() => findMatches(text, query), [text, query]);
   useEffect(() => setCurrent(0), [query, body]);
   const step = (by: number) => {
@@ -425,15 +392,19 @@ export function BodyViewer({ body, contentType }: { body: BodyView; contentType:
               <button
                 key={md}
                 onClick={() => setPreferred(md)}
-                className={`rounded-full px-2.5 py-0.5 capitalize transition-colors ${md === shown ? "bg-panel text-ink shadow-thumb" : "hover:text-ink"}`}
+                className={`rounded-full px-2.5 py-0.5 transition-colors ${md === shown ? "bg-panel text-ink shadow-thumb" : "hover:text-ink"}`}
               >
-                {md}
+                {MODE_LABELS[md]}
               </button>
             ))}
           </div>
         )}
       </div>
       {shown === "tree" && <JsonTree value={parsed} />}
+      {shown === "graphql" && <GraphqlView text={body.text ?? ""} />}
+      {shown === "form" && <FormView text={body.text ?? ""} />}
+      {shown === "parts" && <MultipartView body={body} contentType={contentType} />}
+      {shown === "proto" && <ProtoView body={body} contentType={contentType} />}
       {shown === "text" && <Code text={text} lang={lang} ranges={ranges} current={current} />}
       {mode === "preview" && contentType && (
         <img
@@ -499,10 +470,6 @@ function Code({ text, lang, ranges, current }: { text: string; lang: Lang; range
       })}
     </pre>
   );
-}
-
-function Pre({ text }: { text: string }) {
-  return <pre className="whitespace-pre-wrap break-all font-mono text-xs">{text}</pre>;
 }
 
 type WsFilter = "all" | "clientToServer" | "serverToClient";
@@ -584,40 +551,6 @@ function WsMessages({ messages, total }: { messages: WsMessageView[]; total: num
           <BodyViewer body={current.payload} contentType={null} />
         </div>
       )}
-    </div>
-  );
-}
-
-function Timing({ detail }: { detail: FlowDetail }) {
-  const m = detail.meta;
-  const rows: [string, React.ReactNode][] = [
-    ["Started", `${new Date(m.startedAt).toLocaleDateString()} ${formatTime(m.startedAt)}`],
-    ["Time to headers", formatDuration(m.ttfbMs) || "—"],
-    ["Total time", formatDuration(m.durationMs) || "—"],
-    ["Request size", formatBytes(m.requestSize)],
-    ["Response size", formatBytes(m.responseSize)],
-    ["Protocol", m.httpVersion],
-    ["Client", m.clientAddr],
-  ];
-  const total = m.durationMs ?? 0;
-  const ttfb = m.ttfbMs ?? 0;
-  return (
-    <div>
-      <dl className="grid grid-cols-[120px_1fr] gap-y-0.5">
-        {rows.map(([k, v]) => (
-          <div key={k} className="contents">
-            <dt className="text-muted">{k}</dt>
-            <dd className="font-mono">{v}</dd>
-          </div>
-        ))}
-      </dl>
-      {total > 0 && (
-        <div className="mt-3 flex h-2 w-full overflow-hidden rounded bg-line" title="Waiting · Download">
-          <div className="bg-st-client" style={{ width: `${(ttfb / total) * 100}%` }} />
-          <div className="bg-accent" style={{ width: `${((total - ttfb) / total) * 100}%` }} />
-        </div>
-      )}
-      <p className="mt-2 text-muted">DNS, connect and TLS timings aren’t captured yet.</p>
     </div>
   );
 }

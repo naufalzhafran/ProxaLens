@@ -12,6 +12,7 @@ pub mod settings;
 pub mod store;
 pub mod sysproxy;
 pub mod throttle;
+pub mod timing;
 pub mod tlsfail;
 
 use std::net::SocketAddr;
@@ -234,12 +235,7 @@ impl Engine {
         self.processes.set_proxy_port(addr.port());
 
         let tls = upstream_tls_config(&self.cfg.extra_upstream_roots)?;
-        let https = hyper_rustls::HttpsConnectorBuilder::new()
-            .with_tls_config(tls.clone())
-            .https_or_http()
-            .enable_http1()
-            .enable_http2()
-            .build();
+        let https = timing::connector(tls.clone());
 
         let handler = FlowHandler::new(Recorder::new(
             self.store.clone(),

@@ -197,6 +197,7 @@ pub fn recorder(store: Arc<Store>) -> impl Fn(HandshakeFailure) + Send + Sync + 
             client_addr: f.client_addr,
             error: Some(error),
             ws_message_count: 0,
+            timings: None,
             tags: Vec::new(),
             process: None,
             pid: None,

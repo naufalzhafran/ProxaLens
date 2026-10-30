@@ -24,6 +24,7 @@ function flow(id: number, over: Partial<FlowMeta> = {}): FlowMeta {
     clientAddr: "127.0.0.1:5000",
     error: null,
     wsMessageCount: 0,
+    timings: null,
     tags: [], process: null, pid: null,
     ...over,
   };

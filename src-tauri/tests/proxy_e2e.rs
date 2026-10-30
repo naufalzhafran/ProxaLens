@@ -20,8 +20,7 @@ use hudsucker::rustls::ServerConfig;
 use hudsucker::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use proxalens_lib::engine::repeat::OutgoingRequest;
 use proxalens_lib::engine::rules::{
-    BlockRule, MapLocal, MapRemote, Matcher, Rewrite, RewriteAction, RewriteTarget,
-    Rules,
+    BlockRule, MapLocal, MapRemote, Matcher, Rewrite, RewriteAction, RewriteTarget, Rules,
 };
 use proxalens_lib::engine::settings::{HostList, Settings};
 use proxalens_lib::engine::store::{FlowMeta, FlowState};
@@ -608,6 +607,10 @@ async fn map_local_answers_without_the_server() {
     let f = h.wait_done("/inline").await;
     assert_eq!((f.status, f.state), (Some(418), FlowState::Completed));
     assert_eq!(f.tags, vec!["Map Local"]);
+    // Answered locally: no connection phases, but not a reused connection either.
+    let t = f.timings.expect("timings for a local answer");
+    assert_eq!((t.connect, t.reused_connection), (None, false));
+    assert!(t.wait.is_some() && t.receive.is_some());
     let (_, d) = h.engine.store.get(f.id).unwrap();
     assert_eq!(d.response_body, b"short and stout");
 }
@@ -934,4 +937,62 @@ async fn allow_lan_listens_on_every_interface() {
     h.engine.stop().await;
     let addr = h.engine.start(0).await.unwrap();
     assert!(addr.ip().is_unspecified(), "{addr}");
+}
+
+#[tokio::test]
+async fn records_connection_phases_and_their_reuse() {
+    let (up, root) = https_upstream().await;
+    let h = harness(vec![root], None).await;
+    let url = |p: &str| format!("https://localhost:{}/{p}", up.port());
+
+    let res = h.client.get(url("hello")).send().await.unwrap();
+    res.text().await.unwrap();
+    let first = h.wait_done("/hello").await;
+    let t = first.timings.expect("phases are known once headers arrive");
+    assert!(!t.reused_connection, "{t:?}");
+    assert!(t.dns.is_some(), "localhost was looked up: {t:?}");
+    assert!(t.connect.is_some(), "{t:?}");
+    assert!(t.tls.is_some(), "a TLS handshake was timed: {t:?}");
+    assert!(
+        t.send.is_some() && t.wait.is_some() && t.receive.is_some(),
+        "{t:?}"
+    );
+    let to_first_byte: f64 = [t.blocked, t.dns, t.connect, t.tls, t.send, t.wait]
+        .iter()
+        .flatten()
+        .sum();
+    assert!(
+        (to_first_byte - first.ttfb_ms.unwrap()).abs() < 1e-6,
+        "phases add up to the time to first byte: {t:?} vs {:?}",
+        first.ttfb_ms
+    );
+    assert!(
+        (t.receive.unwrap() - (first.duration_ms.unwrap() - first.ttfb_ms.unwrap())).abs() < 1e-6
+    );
+
+    // The next request goes over the pooled connection.
+    let res = h.client.get(url("echo")).send().await.unwrap();
+    res.text().await.unwrap();
+    let second = h.wait_done("/echo").await;
+    let t = second.timings.unwrap();
+    assert!(t.reused_connection, "{t:?}");
+    assert_eq!(
+        (t.blocked, t.dns, t.connect, t.tls),
+        (None, None, None, None)
+    );
+    assert!(t.wait.is_some() && t.receive.is_some());
+
+    // Plain HTTP to an IP address: a new connection, but no DNS and no TLS.
+    let plain = http_upstream().await;
+    let res = h
+        .client
+        .get(format!("http://{plain}/big"))
+        .send()
+        .await
+        .unwrap();
+    res.bytes().await.unwrap();
+    let t = h.wait_done("/big").await.timings.unwrap();
+    assert!(!t.reused_connection, "{t:?}");
+    assert_eq!((t.dns, t.tls), (None, None), "{t:?}");
+    assert!(t.connect.is_some(), "{t:?}");
 }

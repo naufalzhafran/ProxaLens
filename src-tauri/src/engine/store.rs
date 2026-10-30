@@ -55,6 +55,30 @@ pub struct FlowMeta {
     /// The app that made the request, when it could be identified.
     pub process: Option<String>,
     pub pid: Option<u32>,
+    /// Where the time went; `None` until response headers arrive, and for
+    /// blocked, tunnelled and WebSocket flows.
+    pub timings: Option<Timings>,
+}
+
+/// Where a flow's time went, in milliseconds, in this order. A phase that
+/// didn't happen (a reused connection, plain HTTP, an IP address, a locally
+/// answered request) is `None`; `receive` is `None` until the body is in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Timings {
+    /// From the request arriving until a connection was being opened.
+    pub blocked: Option<f64>,
+    pub dns: Option<f64>,
+    pub connect: Option<f64>,
+    pub tls: Option<f64>,
+    /// Sending the request headers and body.
+    pub send: Option<f64>,
+    /// From the request being sent until the first response byte.
+    pub wait: Option<f64>,
+    /// Receiving the response body.
+    pub receive: Option<f64>,
+    /// The request went over a connection an earlier flow opened.
+    pub reused_connection: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +117,9 @@ pub struct FlowData {
     /// Bodies are already decoded (imported from HAR), so Content-Encoding
     /// headers must not be applied again.
     pub bodies_decoded: bool,
+    /// When the request body finished going upstream, in ms from the
+    /// flow's start; an input to the `send` phase of [`Timings`].
+    pub request_sent_ms: Option<f64>,
 }
 
 /// Change notifications for subscribers (the UI bridge, tests).
@@ -278,6 +305,7 @@ pub(crate) fn test_meta(path: &str) -> FlowMeta {
         client_addr: "127.0.0.1:1".into(),
         error: None,
         ws_message_count: 0,
+        timings: None,
         tags: Vec::new(),
         process: None,
         pid: None,

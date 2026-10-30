@@ -122,12 +122,74 @@ pub struct Content {
     pub encoding: Option<String>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+/// HAR timings. `blocked`, `dns`, `connect` and `ssl` are -1 when they
+/// don't apply; per the spec, `connect` includes `ssl`.
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Timings {
+    pub blocked: f64,
+    pub dns: f64,
+    pub connect: f64,
     pub send: f64,
     pub wait: f64,
     pub receive: f64,
+    pub ssl: f64,
+}
+
+impl Default for Timings {
+    fn default() -> Self {
+        Self {
+            blocked: -1.0,
+            dns: -1.0,
+            connect: -1.0,
+            send: 0.0,
+            wait: 0.0,
+            receive: 0.0,
+            ssl: -1.0,
+        }
+    }
+}
+
+impl Timings {
+    fn from_flow(m: &FlowMeta) -> Self {
+        let total = m.duration_ms.unwrap_or(0.0);
+        let wait = m.ttfb_ms.unwrap_or(total);
+        let t = m.timings.unwrap_or_default();
+        let or = |v: Option<f64>| v.unwrap_or(-1.0);
+        Self {
+            blocked: or(t.blocked),
+            dns: or(t.dns),
+            connect: t.connect.map_or(-1.0, |c| c + t.tls.unwrap_or(0.0)),
+            send: t.send.unwrap_or(0.0),
+            wait: t.wait.unwrap_or(wait),
+            receive: t.receive.unwrap_or((total - wait).max(0.0)),
+            ssl: or(t.tls),
+        }
+    }
+
+    /// Phases from a HAR another tool wrote; `None` when it recorded none.
+    fn to_flow(&self) -> Option<super::store::Timings> {
+        let opt = |v: f64| (v >= 0.0).then_some(v);
+        if [self.blocked, self.dns, self.connect, self.ssl]
+            .iter()
+            .all(|v| *v < 0.0)
+            && self.send <= 0.0
+            && self.wait <= 0.0
+            && self.receive <= 0.0
+        {
+            return None;
+        }
+        Some(super::store::Timings {
+            blocked: opt(self.blocked),
+            dns: opt(self.dns),
+            connect: opt(self.connect).map(|c| (c - self.ssl.max(0.0)).max(0.0)),
+            tls: opt(self.ssl),
+            send: opt(self.send),
+            wait: opt(self.wait),
+            receive: opt(self.receive),
+            reused_connection: self.connect < 0.0,
+        })
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -152,6 +214,9 @@ pub struct Extra {
     pub process: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
+    /// Our own phases, exact; the HAR `timings` are derived from them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timings: Option<super::store::Timings>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -220,7 +285,6 @@ pub fn export(flows: &[(FlowMeta, FlowData)]) -> Har {
 
 fn entry(m: &FlowMeta, d: &FlowData) -> Entry {
     let total = m.duration_ms.unwrap_or(0.0);
-    let wait = m.ttfb_ms.unwrap_or(total);
     let query_string = m
         .url
         .parse::<Uri>()
@@ -294,11 +358,7 @@ fn entry(m: &FlowMeta, d: &FlowData) -> Entry {
             body_size: m.response_size as i64,
         },
         cache: Value::Object(Default::default()),
-        timings: Timings {
-            send: 0.0,
-            wait,
-            receive: (total - wait).max(0.0),
-        },
+        timings: Timings::from_flow(m),
         extra: Some(Extra {
             state: m.state,
             error: m.error.clone(),
@@ -320,6 +380,7 @@ fn entry(m: &FlowMeta, d: &FlowData) -> Entry {
             tags: m.tags.clone(),
             process: m.process.clone(),
             pid: m.pid,
+            timings: m.timings,
         }),
     }
 }
@@ -430,6 +491,10 @@ fn from_entry(e: Entry) -> (FlowMeta, FlowData) {
         tags: extra.as_ref().map(|x| x.tags.clone()).unwrap_or_default(),
         process: extra.as_ref().and_then(|x| x.process.clone()),
         pid: extra.as_ref().and_then(|x| x.pid),
+        timings: match &extra {
+            Some(x) => x.timings,
+            None => e.timings.to_flow(),
+        },
     };
     let data = FlowData {
         request_headers: pairs(e.request.headers),
@@ -453,6 +518,7 @@ fn from_entry(e: Entry) -> (FlowMeta, FlowData) {
             })
             .unwrap_or_default(),
         bodies_decoded: true,
+        request_sent_ms: None,
     };
     (meta, data)
 }
@@ -520,6 +586,67 @@ mod tests {
         assert_eq!(e.response.content.text.as_deref(), Some(r#"{"id":1}"#));
         assert_eq!(e.response.content.mime_type, "application/json");
         assert_eq!((e.timings.wait, e.timings.receive), (40.0, 15.0));
+    }
+
+    #[test]
+    fn timings_round_trip_and_follow_the_har_spec() {
+        use super::super::store::Timings as Phases;
+        let (mut m, d) = flow();
+        m.timings = Some(Phases {
+            blocked: Some(1.0),
+            dns: Some(2.0),
+            connect: Some(3.0),
+            tls: Some(4.0),
+            send: Some(5.0),
+            wait: Some(25.0),
+            receive: Some(15.0),
+            reused_connection: false,
+        });
+        let har = export(&[(m.clone(), d)]);
+        let t = &har.log.entries[0].timings;
+        // HAR's connect includes the TLS handshake.
+        assert_eq!((t.blocked, t.dns, t.connect, t.ssl), (1.0, 2.0, 7.0, 4.0));
+        assert_eq!((t.send, t.wait, t.receive), (5.0, 25.0, 15.0));
+
+        let back = import(parse(&to_json(&har)).unwrap());
+        assert_eq!(back[0].0.timings, m.timings);
+
+        // Without phases of our own, n/a fields are -1 and the rest derive
+        // from TTFB and duration.
+        let (m, d) = flow();
+        let t = &export(&[(m, d)]).log.entries[0].timings;
+        assert_eq!(
+            (t.blocked, t.dns, t.connect, t.ssl),
+            (-1.0, -1.0, -1.0, -1.0)
+        );
+        assert_eq!((t.send, t.wait, t.receive), (0.0, 40.0, 15.0));
+    }
+
+    #[test]
+    fn imports_phases_from_a_foreign_har() {
+        let json = br#"{"log":{"entries":[{
+            "startedDateTime":"2024-01-02T03:04:05Z","time":30,
+            "request":{"method":"GET","url":"https://a.com/","headers":[]},
+            "response":{"status":200,"headers":[],"content":{"size":0,"mimeType":""}},
+            "timings":{"blocked":1,"dns":2,"connect":10,"ssl":6,"send":0.5,"wait":12,"receive":4.5}
+        },{
+            "startedDateTime":"2024-01-02T03:04:05Z","time":5,
+            "request":{"method":"GET","url":"https://a.com/b","headers":[]},
+            "response":{"status":200,"headers":[],"content":{"size":0,"mimeType":""}},
+            "timings":{"blocked":-1,"dns":-1,"connect":-1,"ssl":-1,"send":0,"wait":4,"receive":1}
+        }]}}"#;
+        let flows = import(parse(json).unwrap());
+        let t = flows[0].0.timings.unwrap();
+        assert_eq!((t.blocked, t.dns), (Some(1.0), Some(2.0)));
+        assert_eq!((t.connect, t.tls), (Some(4.0), Some(6.0)));
+        assert_eq!(
+            (t.send, t.wait, t.receive),
+            (Some(0.5), Some(12.0), Some(4.5))
+        );
+        assert!(!t.reused_connection);
+        let t = flows[1].0.timings.unwrap();
+        assert!(t.reused_connection);
+        assert_eq!((t.connect, t.wait), (None, Some(4.0)));
     }
 
     #[test]

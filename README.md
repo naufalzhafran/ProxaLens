@@ -32,7 +32,9 @@ Proxyman-style tooling, but free and hackable. A fast Rust engine does the heavy
 ### 🧐 Inspect
 - 🗂️ Three-pane inspector: apps & domains → flows → details.
 - 🌳 Bodies as JSON tree, text, hex or image; gzip/br/zstd decoded automatically.
-- 💬 WebSocket message view, timings, and the app behind each request.
+- 🧩 Form fields, multipart uploads, GraphQL operations, and protobuf / gRPC messages decoded without a schema.
+- ⏱️ Timing broken down into blocked, DNS, connect, TLS, send, wait and download, with a waterfall column in the flow list.
+- 💬 WebSocket message view and the app behind each request.
 - 🔎 httpmon filter syntax (`m:post s:4xx ct:json re:… app:chrome`) plus method/status chips.
 
 ### 🛠️ Debug

@@ -8,6 +8,7 @@ import { formatCurl } from "../lib/curl";
 import { buildPredicate } from "../lib/filter";
 import { baseDomain } from "../lib/http";
 import { formatBytes, formatDuration, formatTime, methodHue, shortContentType, statusColor } from "../lib/format";
+import { describePhases, flowSpan, phaseSegments, waterfallRange } from "../lib/timing";
 import { useColumns, type ColumnKey, type Sort } from "../state/columns";
 import { useFlows } from "../state/flows";
 import { ContextMenu, contextMenuKey, HUE_BADGE, separatorLine, startDrag, type MenuEntry } from "./ui";
@@ -29,7 +30,37 @@ interface Column {
   right?: boolean;
   /** Sort key; strings sort case-insensitively. */
   value: (f: FlowMeta) => string | number;
-  cell: (f: FlowMeta, selected: boolean) => React.ReactNode;
+  cell: (f: FlowMeta, selected: boolean, ctx: RowContext) => React.ReactNode;
+}
+
+/** What a cell needs beyond its own flow. */
+interface RowContext {
+  /** The time span the shown flows cover, for the waterfall. */
+  range: [number, number] | null;
+}
+
+/** A flow's phases as a bar placed on the shown flows' time span. */
+function Waterfall({ flow, range }: { flow: FlowMeta; range: [number, number] | null }) {
+  if (!range) return null;
+  const [start, end] = range;
+  const span = end - start;
+  const segments = phaseSegments(flow);
+  const total = segments.reduce((n, s) => n + s.ms, 0);
+  const left = ((flow.startedAt - start) / span) * 100;
+  const width = (Math.max(total, flowSpan(flow)) / span) * 100;
+  return (
+    <span className="relative block h-2.5 w-full" title={describePhases(flow) || undefined}>
+      <span
+        className="absolute top-0 flex h-full overflow-hidden rounded-sm"
+        style={{ left: `${Math.min(left, 100)}%`, width: `max(${Math.min(width, 100 - left)}%, 2px)` }}
+      >
+        {segments.map((s) => (
+          <span key={s.phase.key} className={`h-full ${s.phase.cls}`} style={{ flex: `${s.ms} 0 0` }} />
+        ))}
+        {!segments.length && <span className="h-full flex-1 bg-hue-gray" />}
+      </span>
+    </span>
+  );
 }
 
 const muted = (selected: boolean) => (selected ? "" : "text-muted");
@@ -91,6 +122,10 @@ export const COLUMNS: Column[] = [
     cell: (f) => <span className="truncate text-right">{formatDuration(f.durationMs)}</span>,
   },
   {
+    key: "waterfall", label: "Waterfall", track: "minmax(90px,1fr)", min: 60, value: (f) => f.startedAt,
+    cell: (f, _sel, ctx) => <Waterfall flow={f} range={ctx.range} />,
+  },
+  {
     key: "started", label: "Started", track: "64px", min: 48, value: (f) => f.startedAt,
     cell: (f, sel) => (
       <span className={`truncate ${muted(sel)}`} title={formatTime(f.startedAt)}>
@@ -142,6 +177,10 @@ export const FlowTable = memo(function FlowTable() {
   );
   const selected = useMemo(() => new Set(selection), [selection]);
   const tally = useMemo(() => tallyStatuses(rows, byId), [rows, byId]);
+  const ctx = useMemo<RowContext>(
+    () => ({ range: hidden.includes("waterfall") ? null : waterfallRange(rows, byId) }),
+    [rows, byId, hidden],
+  );
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
 
@@ -287,7 +326,7 @@ export const FlowTable = memo(function FlowTable() {
                     className={`grid cursor-default items-center rounded-md font-mono text-xs ${rowClass(f, sel, v.index)}`}
                   >
                     {columns.map((c) => (
-                      <Cell key={c.key}>{c.cell(f, sel)}</Cell>
+                      <Cell key={c.key}>{c.cell(f, sel, ctx)}</Cell>
                     ))}
                   </div>
                 );

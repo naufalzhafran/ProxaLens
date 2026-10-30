@@ -33,7 +33,7 @@ function flow(method: string, status: number | null, host: string, path: string,
     clientAddr: "127.0.0.1:1",
     error: null,
     wsMessageCount: 0,
-    tags: [], process: null, pid: null,
+    tags: [], process: null, pid: null, timings: null,
   };
 }
 
