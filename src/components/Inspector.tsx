@@ -2,7 +2,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { api, errorMessage, type BodyView, type FlowDetail, type WsMessageView } from "../api";
-import { editAndRepeat, repeat } from "../lib/actions";
+import { editAndRepeat, mockFlow, repeat } from "../lib/actions";
 import { copy } from "../lib/clipboard";
 import { formatCurl } from "../lib/curl";
 import { formatBytes, formatDuration, formatTime, methodHue, statusColor } from "../lib/format";
@@ -90,6 +90,9 @@ export const Inspector = memo(function Inspector({ sideBySide = false }: { sideB
               <button className={pill} onClick={() => editAndRepeat(m.id)}>
                 Edit and Repeat…
               </button>
+              <button className={pill} title="Keep this API on the Mocks page and serve a fake response" onClick={() => mockFlow(m.id)}>
+                Mock…
+              </button>
             </>
           )}
           <button className={pill} onClick={() => copy(m.url, "URL")}>
@@ -164,7 +167,7 @@ const RequestPane = memo(function RequestPane({ detail }: { detail: FlowDetail }
   );
 });
 
-const ResponsePane = memo(function ResponsePane({ detail }: { detail: FlowDetail }) {
+export const ResponsePane = memo(function ResponsePane({ detail }: { detail: FlowDetail }) {
   const [tab, setTab] = useState<ResTab>("body");
   const m = detail.meta;
   const cookies = useMemo(() => responseCookies(detail.responseHeaders), [detail.responseHeaders]);

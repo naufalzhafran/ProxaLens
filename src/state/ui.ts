@@ -70,8 +70,12 @@ export const useSettings = create<{
   save: async (s) => set({ settings: await api.setSettings(s) }),
 }));
 
-/** Main window layout: whether the sidebar shows, and where the inspector sits. */
+/** The main window's pages: captured traffic, and the mocked APIs. */
+export type Page = "traffic" | "mocks";
+
+/** Main window layout: the page shown, whether the sidebar shows, and where the inspector sits. */
 export interface LayoutPrefs {
+  page: Page;
   sidebarHidden: boolean;
   inspector: "right" | "bottom";
 }
@@ -81,26 +85,31 @@ const LAYOUT_KEY = "layout";
 function loadLayout(): LayoutPrefs {
   try {
     const v = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "null");
-    return { sidebarHidden: v?.sidebarHidden === true, inspector: v?.inspector === "right" ? "right" : "bottom" };
+    return {
+      page: v?.page === "mocks" ? "mocks" : "traffic",
+      sidebarHidden: v?.sidebarHidden === true,
+      inspector: v?.inspector === "right" ? "right" : "bottom",
+    };
   } catch {
-    return { sidebarHidden: false, inspector: "bottom" };
+    return { page: "traffic", sidebarHidden: false, inspector: "bottom" };
   }
 }
 
 export const useLayout = create<
-  LayoutPrefs & { toggleSidebar: () => void; toggleInspector: () => void }
+  LayoutPrefs & { setPage: (p: Page) => void; toggleSidebar: () => void; toggleInspector: () => void }
 >((set, get) => {
   const update = (patch: Partial<LayoutPrefs>) => {
     set(patch);
-    const { sidebarHidden, inspector } = get();
+    const { page, sidebarHidden, inspector } = get();
     try {
-      localStorage.setItem(LAYOUT_KEY, JSON.stringify({ sidebarHidden, inspector }));
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify({ page, sidebarHidden, inspector }));
     } catch {
       /* kept for this session only */
     }
   };
   return {
     ...loadLayout(),
+    setPage: (page) => update({ page }),
     toggleSidebar: () => update({ sidebarHidden: !get().sidebarHidden }),
     toggleInspector: () => update({ inspector: get().inspector === "right" ? "bottom" : "right" }),
   };

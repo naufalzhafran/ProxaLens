@@ -30,6 +30,8 @@ export interface FlowMeta {
   pid: number | null;
   /** Where the time went; null until response headers arrive. */
   timings: Timings | null;
+  /** The mock whose API this request called, served or not. */
+  mockId: string | null;
 }
 
 /** Phases of a flow in milliseconds, in this order; null when a phase did not happen. */
@@ -170,6 +172,34 @@ export interface Rules {
   block: BlockRule[];
 }
 
+export interface MockRequest {
+  /** The URL as it was captured, for sending the API again. */
+  url: string;
+  headers: [string, string][];
+  /** Body text; an undecodable body is kept in `bodyBase64` instead. */
+  body: string;
+  bodyBase64: string;
+}
+
+export interface MockResponse {
+  status: number;
+  headers: [string, string][];
+  body: string;
+  /** Added latency before the response is sent. */
+  delayMs: number;
+}
+
+/** An API picked from traffic, with the response served while `enabled`. */
+export interface Mock extends Matcher {
+  request: MockRequest;
+  response: MockResponse;
+  createdAt: number;
+}
+
+export interface Mocks {
+  mocks: Mock[];
+}
+
 export type FlowBatch =
   | { type: "upserts"; flows: FlowMeta[] }
   | { type: "cleared" }
@@ -206,6 +236,8 @@ export const api = {
   sendRequest: (request: OutgoingRequest) => invoke<number | null>("send_request", { request }),
   getRules: () => invoke<Rules>("get_rules"),
   setRules: (rules: Rules) => invoke<Rules>("set_rules", { rules }),
+  getMocks: () => invoke<Mocks>("get_mocks"),
+  setMocks: (mocks: Mocks) => invoke<Mocks>("set_mocks", { mocks }),
   /** Fires when the tray (or another command) changes proxy state. */
   onStatusChanged: (cb: () => void) => listen("status-changed", cb),
 };

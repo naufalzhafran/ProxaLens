@@ -18,6 +18,7 @@ use hudsucker::hyper_util::rt::{TokioExecutor, TokioIo};
 use hudsucker::rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use hudsucker::rustls::ServerConfig;
 use hudsucker::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use proxalens_lib::engine::mocks::{Mock, MockResponse, Mocks};
 use proxalens_lib::engine::repeat::OutgoingRequest;
 use proxalens_lib::engine::rules::{
     BlockRule, MapLocal, MapRemote, Matcher, Rewrite, RewriteAction, RewriteTarget, Rules,
@@ -613,6 +614,83 @@ async fn map_local_answers_without_the_server() {
     assert!(t.wait.is_some() && t.receive.is_some());
     let (_, d) = h.engine.store.get(f.id).unwrap();
     assert_eq!(d.response_body, b"short and stout");
+}
+
+#[tokio::test]
+async fn mocks_answer_when_enabled_and_mark_calls_either_way() {
+    let up = http_upstream().await;
+    let h = harness(vec![], None).await;
+    let mock = |id: &str, enabled: bool| Mock {
+        matcher: Matcher {
+            id: id.into(),
+            name: "Hello".into(),
+            enabled,
+            method: "GET".into(),
+            url: format!("http://{up}/hello*"),
+            regex: false,
+        },
+        response: MockResponse {
+            status: 503,
+            headers: vec![("Content-Type".into(), "application/json".into())],
+            body: r#"{"mocked":true}"#.into(),
+            delay_ms: 0,
+        },
+        ..Default::default()
+    };
+    h.engine
+        .set_mocks(Mocks {
+            mocks: vec![mock("m1", true)],
+        })
+        .unwrap();
+
+    let res = h
+        .client
+        .get(format!("http://{up}/hello?x=1"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 503);
+    assert_eq!(res.headers()["content-type"], "application/json");
+    assert_eq!(res.text().await.unwrap(), r#"{"mocked":true}"#);
+    let f = h.wait_done("/hello?x=1").await;
+    assert_eq!(f.mock_id.as_deref(), Some("m1"));
+    assert_eq!(f.tags, vec!["Mock"]);
+    assert_eq!((f.status, f.state), (Some(503), FlowState::Completed));
+
+    // Disabled: the server answers, but the call is still marked.
+    h.engine
+        .set_mocks(Mocks {
+            mocks: vec![mock("m1", false)],
+        })
+        .unwrap();
+    let res = h
+        .client
+        .get(format!("http://{up}/hello"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    assert_eq!(res.text().await.unwrap(), r#"{"hello":"world"}"#);
+    let f = h.wait_done("/hello").await;
+    assert_eq!(f.mock_id.as_deref(), Some("m1"));
+    assert!(f.tags.is_empty());
+
+    // Another method is not this API.
+    h.client
+        .post(format!("http://{up}/hello"))
+        .send()
+        .await
+        .unwrap();
+    let (flows, _) = h.engine.store.list(0, 100);
+    let post = flows.iter().find(|f| f.method == "POST").unwrap();
+    assert_eq!(post.mock_id, None);
+
+    // Bad mocks are refused and the old ones stay.
+    let mut bad = mock("m1", true);
+    bad.matcher.url = String::new();
+    assert!(h.engine.set_mocks(Mocks { mocks: vec![bad] }).is_err());
+    assert!(!h.engine.mocks().mocks[0].matcher.enabled);
+    assert!(h._dir.path().join("mocks.json").exists());
 }
 
 #[tokio::test]

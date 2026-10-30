@@ -105,6 +105,8 @@ pub fn run() {
             commands::send_request,
             commands::get_rules,
             commands::set_rules,
+            commands::get_mocks,
+            commands::set_mocks,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

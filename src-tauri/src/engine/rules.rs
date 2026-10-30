@@ -231,14 +231,14 @@ pub fn normalize_url(url: &str) -> String {
     url.to_string()
 }
 
-struct CompiledMatcher {
+pub(crate) struct CompiledMatcher {
     enabled: bool,
     method: Option<String>,
     pattern: Option<Regex>,
 }
 
 impl CompiledMatcher {
-    fn new(m: &Matcher) -> Self {
+    pub(crate) fn new(m: &Matcher) -> Self {
         let method = m.method.trim();
         Self {
             enabled: m.enabled && !m.url.trim().is_empty(),
@@ -247,7 +247,18 @@ impl CompiledMatcher {
         }
     }
 
-    fn matches(&self, method: &str, url: &str) -> bool {
+    /// Matches whether or not the matcher is enabled.
+    pub(crate) fn always(mut self) -> Self {
+        self.enabled = self.pattern.is_some();
+        self
+    }
+
+    /// Checks the pattern without building a matcher.
+    pub(crate) fn compile(m: &Matcher) -> Result<(), regex::Error> {
+        compile_pattern(m).map(drop)
+    }
+
+    pub(crate) fn matches(&self, method: &str, url: &str) -> bool {
         self.enabled
             && self
                 .method

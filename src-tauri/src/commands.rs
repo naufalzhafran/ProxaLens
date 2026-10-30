@@ -11,6 +11,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::broadcast::error::TryRecvError;
 
+use crate::engine::mocks::Mocks;
 use crate::engine::repeat::OutgoingRequest;
 use crate::engine::rules::Rules;
 use crate::engine::settings::Settings;
@@ -544,6 +545,17 @@ pub fn get_rules(state: State<'_, AppState>) -> Rules {
 pub fn set_rules(state: State<'_, AppState>, rules: Rules) -> CmdResult<Rules> {
     state.engine.set_rules(rules).map_err(|e| e.to_string())?;
     Ok(state.engine.rules())
+}
+
+#[tauri::command]
+pub fn get_mocks(state: State<'_, AppState>) -> Mocks {
+    state.engine.mocks()
+}
+
+#[tauri::command]
+pub fn set_mocks(state: State<'_, AppState>, mocks: Mocks) -> CmdResult<Mocks> {
+    state.engine.set_mocks(mocks).map_err(|e| e.to_string())?;
+    Ok(state.engine.mocks())
 }
 
 #[derive(Clone, Serialize)]

@@ -214,6 +214,8 @@ pub struct Extra {
     pub process: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mock_id: Option<String>,
     /// Our own phases, exact; the HAR `timings` are derived from them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timings: Option<super::store::Timings>,
@@ -380,6 +382,7 @@ fn entry(m: &FlowMeta, d: &FlowData) -> Entry {
             tags: m.tags.clone(),
             process: m.process.clone(),
             pid: m.pid,
+            mock_id: m.mock_id.clone(),
             timings: m.timings,
         }),
     }
@@ -491,6 +494,7 @@ fn from_entry(e: Entry) -> (FlowMeta, FlowData) {
         tags: extra.as_ref().map(|x| x.tags.clone()).unwrap_or_default(),
         process: extra.as_ref().and_then(|x| x.process.clone()),
         pid: extra.as_ref().and_then(|x| x.pid),
+        mock_id: extra.as_ref().and_then(|x| x.mock_id.clone()),
         timings: match &extra {
             Some(x) => x.timings,
             None => e.timings.to_flow(),

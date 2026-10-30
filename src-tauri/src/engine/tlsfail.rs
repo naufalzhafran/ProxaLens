@@ -199,6 +199,7 @@ pub fn recorder(store: Arc<Store>) -> impl Fn(HandshakeFailure) + Send + Sync + 
             ws_message_count: 0,
             timings: None,
             tags: Vec::new(),
+            mock_id: None,
             process: None,
             pid: None,
         };

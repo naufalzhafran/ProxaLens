@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { api, type FlowMeta } from "../api";
-import { addRuleFor, batch, dontDecrypt, editAndRepeat, files, removeFlows, repeat } from "../lib/actions";
+import { addRuleFor, batch, dontDecrypt, editAndRepeat, files, mockFlow, mockFlows, removeFlows, repeat } from "../lib/actions";
 import { copy } from "../lib/clipboard";
 import { formatCurl } from "../lib/curl";
 import { buildPredicate } from "../lib/filter";
@@ -506,6 +506,8 @@ export function flowMenu(f: FlowMeta): MenuEntry[] {
     { label: "Rewrite…", disabled: !replayable, onSelect: () => addRuleFor(f.id, "rewrite") },
     { label: "Block URL…", disabled: !replayable, onSelect: () => addRuleFor(f.id, "block") },
     "separator",
+    { label: "Mock This API…", disabled: !replayable, onSelect: () => mockFlow(f.id) },
+    "separator",
     ...(f.scheme === "https" && f.state !== "tunnel"
       ? [{ label: `Don’t Decrypt ${f.host}`, onSelect: () => dontDecrypt(f.host) }]
       : []),
@@ -532,6 +534,7 @@ export function batchMenu(ids: number[]): MenuEntry[] {
     { label: "Export as HAR…", onSelect: () => files.exportHar(ids) },
     "separator",
     { label: `Repeat ${replayable.length} in Order`, disabled: !replayable.length, onSelect: () => batch.repeat(replayable) },
+    { label: `Mock ${replayable.length} APIs…`, disabled: !replayable.length, onSelect: () => mockFlows(replayable) },
     "separator",
     { label: `Remove ${ids.length} Flows (⌫)`, onSelect: () => removeFlows(ids) },
   ];

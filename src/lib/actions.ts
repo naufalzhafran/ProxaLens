@@ -2,13 +2,15 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, errorMessage, type FlowDetail, type OutgoingRequest } from "../api";
 import { useFlows } from "../state/flows";
-import { useSettings, useUi, type Draft, type RulesView } from "../state/ui";
+import { useLayout, useSettings, useUi, type Draft, type RulesView } from "../state/ui";
 import { copy, useToast } from "./clipboard";
 import { confirmAction } from "./confirm";
 import { formatCurl } from "./curl";
 import { buildPredicate } from "./filter";
 import { bodyBytes } from "./http";
+import { mockFrom } from "./mocks";
 import { mapLocalFrom, newRule, patternFor, type RuleKind } from "./rules";
+import { useMocks } from "../state/mocks";
 
 const toast = (m: string) => useToast.getState().show(m);
 
@@ -190,6 +192,37 @@ export async function dontDecrypt(host: string) {
   } catch (e) {
     toast(errorMessage(e));
   }
+}
+
+/** Keeps this flow's API on the Mocks page (selecting it if it is already there) and shows the page. */
+export async function mockFlow(id: number) {
+  try {
+    const d = await api.getFlow(id);
+    if (!d) return;
+    const m = await useMocks.getState().add(mockFrom(d));
+    useMocks.getState().select(m.id);
+    useLayout.getState().setPage("mocks");
+  } catch (e) {
+    toast(errorMessage(e));
+  }
+}
+
+/** Keeps several flows' APIs on the Mocks page, skipping ones already there. */
+export async function mockFlows(ids: number[]) {
+  let added = 0;
+  for (const id of ids) {
+    try {
+      const d = await api.getFlow(id);
+      if (!d) continue;
+      const m = mockFrom(d);
+      if ((await useMocks.getState().add(m)) === m) added++;
+    } catch (e) {
+      toast(errorMessage(e));
+      return;
+    }
+  }
+  toast(added ? `Added ${added} mock${added === 1 ? "" : "s"}` : "Those APIs are already mocked");
+  useLayout.getState().setPage("mocks");
 }
 
 /** Opens the Rules dialog with a new rule for this flow's URL. */

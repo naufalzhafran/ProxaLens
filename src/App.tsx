@@ -5,6 +5,7 @@ import { DevicesDialog } from "./components/DevicesDialog";
 import { FilterBar } from "./components/FilterBar";
 import { FlowTable } from "./components/FlowTable";
 import { Inspector } from "./components/Inspector";
+import { MocksPage } from "./components/MocksPage";
 import { Onboarding, shouldShowOnboarding } from "./components/Onboarding";
 import { RulesDialog } from "./components/RulesDialog";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -40,6 +41,7 @@ export default function App() {
   const rulesView = useUi((s) => s.rules);
   const devicesOpen = useUi((s) => s.devicesOpen);
   const update = useUpdate();
+  const page = useLayout((s) => s.page);
   const sidebarHidden = useLayout((s) => s.sidebarHidden);
   const bottom = useLayout((s) => s.inspector === "bottom");
   const [panes, panesSize] = useSize();
@@ -126,6 +128,8 @@ export default function App() {
         ",": () => ui.openSettings("general"),
         l: () => ui.openRules({ tab: "mapLocal" }),
         b: () => useLayout.getState().toggleSidebar(),
+        "1": () => useLayout.getState().setPage("traffic"),
+        "2": () => useLayout.getState().setPage("mocks"),
       };
       const action = actions[e.key];
       if (action) {
@@ -192,7 +196,8 @@ export default function App() {
           </button>
         </Banner>
       )}
-      <div ref={panes} className="flex min-h-0 flex-1">
+      {page === "mocks" && <MocksPage />}
+      <div ref={panes} className={`flex min-h-0 flex-1 ${page === "mocks" ? "hidden" : ""}`}>
         {!sidebarHidden && (
           <>
             <div style={{ width: sidebar.size }} className="flex shrink-0 flex-col bg-surface">

@@ -4,6 +4,7 @@ pub mod ca;
 pub mod decode;
 pub mod guard;
 pub mod har;
+pub mod mocks;
 pub mod procinfo;
 pub mod proxy;
 pub mod repeat;
@@ -30,6 +31,7 @@ use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinHandle;
 
 use ca::CaBundle;
+use mocks::{CompiledMocks, Mocks};
 use proxy::{FlowHandler, Recorder};
 use repeat::{OutgoingRequest, RepeatError};
 use rules::{CompiledRules, Rules};
@@ -83,6 +85,8 @@ pub enum EngineError {
     Io(#[from] std::io::Error),
     #[error("{0}")]
     Rules(String),
+    #[error("{0}")]
+    Mocks(String),
 }
 
 pub struct EngineConfig {
@@ -118,6 +122,7 @@ pub struct Engine {
     pub ca: CaBundle,
     settings: Arc<parking_lot::RwLock<Settings>>,
     rules: Arc<parking_lot::RwLock<Arc<CompiledRules>>>,
+    mocks: Arc<parking_lot::RwLock<Arc<CompiledMocks>>>,
     pub processes: Arc<procinfo::Resolver>,
     running: Mutex<Option<Running>>,
 }
@@ -127,6 +132,7 @@ impl Engine {
         let ca = CaBundle::load_or_create(&cfg.data_dir.join("ca"))?;
         let settings = Settings::load(&cfg.data_dir.join("settings.json"));
         let rules = Rules::load(&cfg.data_dir.join("rules.json"));
+        let mocks = Mocks::load(&cfg.data_dir.join("mocks.json"));
         let store = Arc::new(Store::new(cfg.buffer_size));
         Ok(Self {
             store: store.clone(),
@@ -134,6 +140,9 @@ impl Engine {
             settings: Arc::new(parking_lot::RwLock::new(settings)),
             rules: Arc::new(parking_lot::RwLock::new(Arc::new(CompiledRules::new(
                 rules,
+            )))),
+            mocks: Arc::new(parking_lot::RwLock::new(Arc::new(CompiledMocks::new(
+                mocks,
             )))),
             processes: procinfo::Resolver::new(Arc::new(procinfo::Darwin), store.clone()),
             cfg,
@@ -165,6 +174,18 @@ impl Engine {
         rules.validate().map_err(EngineError::Rules)?;
         rules.save(&self.cfg.data_dir.join("rules.json"))?;
         *self.rules.write() = Arc::new(CompiledRules::new(rules));
+        Ok(())
+    }
+
+    pub fn mocks(&self) -> Mocks {
+        self.mocks.read().mocks.clone()
+    }
+
+    /// Checks, saves and applies new mocks (to requests that start after).
+    pub fn set_mocks(&self, mocks: Mocks) -> Result<(), EngineError> {
+        mocks.validate().map_err(EngineError::Mocks)?;
+        mocks.save(&self.cfg.data_dir.join("mocks.json"))?;
+        *self.mocks.write() = Arc::new(CompiledMocks::new(mocks));
         Ok(())
     }
 
@@ -242,6 +263,7 @@ impl Engine {
             self.cfg.body_cap,
             self.settings.clone(),
             self.rules.clone(),
+            self.mocks.clone(),
             self.processes.clone(),
             proxy::LocalPages {
                 ca_pem: self.ca.cert_pem.clone(),

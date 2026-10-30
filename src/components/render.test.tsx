@@ -115,3 +115,56 @@ describe("keyboard access", () => {
     expect(html).toContain('aria-expanded="false"');
   });
 });
+
+describe("MocksPage", () => {
+  const mock = {
+    id: "m1", name: "GET /users", enabled: true, method: "GET", url: "https://api.x.com/users*", regex: false,
+    request: { url: "https://api.x.com/users?page=1", headers: [], body: "", bodyBase64: "" },
+    response: { status: 200, headers: [["Content-Type", "application/json"]] as [string, string][], body: "[]", delayMs: 0 },
+    createdAt: 0,
+  };
+  const flow = {
+    id: 7, method: "GET", scheme: "https", host: "api.x.com", path: "/users", url: "https://api.x.com/users",
+    httpVersion: "HTTP/1.1", status: 200, state: "completed" as const, contentType: null, startedAt: 0, ttfbMs: null,
+    durationMs: 12, requestSize: 0, responseSize: 2, clientAddr: "127.0.0.1:1", error: null, wsMessageCount: 0,
+    tags: ["Mock"], process: "curl", pid: null, timings: null, mockId: "m1",
+  };
+
+  it("explains how to add an API when there are none", async () => {
+    const { NoMocks } = await import("./MocksPage");
+    expect(renderToStaticMarkup(<NoMocks />)).toContain("Mock This API");
+  });
+
+  it("lists a mock with its switch and badges its new calls", async () => {
+    const { MockRow } = await import("./MocksPage");
+    const html = renderToStaticMarkup(<MockRow mock={mock} calls={3} unseen={1} selected={false} />);
+    expect(html).toContain('role="switch" aria-checked="true"');
+    expect(html).toContain("GET /users");
+    expect(html).toContain('title="1 new call"');
+    const off = renderToStaticMarkup(<MockRow mock={{ ...mock, enabled: false }} calls={3} unseen={0} selected />);
+    expect(off).toContain('role="switch" aria-checked="false"');
+    expect(off).toContain('aria-current="true"');
+    expect(off).toContain(">3<");
+  });
+
+  it("edits the pattern and the mock response", async () => {
+    const { Editor } = await import("./MocksPage");
+    const html = renderToStaticMarkup(<Editor mock={mock} />);
+    expect(html).toContain('aria-label="URL pattern"');
+    expect(html).toContain('value="https://api.x.com/users*"');
+    expect(html).toContain("Serving mock");
+    expect(html).toContain("Content-Type: application/json");
+    expect(html).toContain("Format JSON");
+  });
+
+  it("lists calls, saying which were mocked", async () => {
+    const { Calls } = await import("./MocksPage");
+    const html = renderToStaticMarkup(<Calls mock={mock} ids={[7]} byId={{ 7: flow }} />);
+    expect(html).toContain("Mocked");
+    expect(html).toContain("curl");
+    expect(html).toContain('aria-current="true"');
+    const real = renderToStaticMarkup(<Calls mock={mock} ids={[7]} byId={{ 7: { ...flow, tags: [] } }} />);
+    expect(real).toContain("Real");
+    expect(renderToStaticMarkup(<Calls mock={mock} ids={[]} byId={{}} />)).toContain("No calls yet");
+  });
+});

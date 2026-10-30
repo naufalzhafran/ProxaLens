@@ -18,7 +18,8 @@ import {
 import { api, errorMessage, type Status } from "../api";
 import { clearFlows, files, visibleIds } from "../lib/actions";
 import { activeRules } from "../lib/rules";
-import { emptyDraft, useLayout, useSettings, useTools, useUi } from "../state/ui";
+import { useMocks } from "../state/mocks";
+import { emptyDraft, useLayout, useSettings, useTools, useUi, type Page } from "../state/ui";
 import { THROTTLE_PRESETS } from "./SettingsDialog";
 import { button, ContextMenu, HUE_TEXT, IconButton, Popover, primaryButton, useAnchor, type MenuEntry } from "./ui";
 import type { Hue } from "../lib/format";
@@ -39,11 +40,13 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
   const settings = useSettings((s) => s.settings);
   const rules = useTools((s) => s.rules);
   const { openComposer, openSettings, openRules, openDevices } = useUi.getState();
-  const { sidebarHidden, inspector, toggleSidebar, toggleInspector } = useLayout();
+  const { page, setPage, sidebarHidden, inspector, toggleSidebar, toggleInspector } = useLayout();
+  const mocksOn = useMocks((s) => s.mocks?.filter((m) => m.enabled).length ?? 0);
 
   useEffect(() => {
     useSettings.getState().refresh().catch((e) => onError(errorMessage(e)));
     useTools.getState().refresh().catch(() => {});
+    useMocks.getState().load().catch(() => {});
   }, [onError]);
 
   function showMenu(e: React.MouseEvent, items: MenuEntry[]) {
@@ -162,6 +165,9 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
       <StatusPill status={status} onClick={details.open} />
 
       <Divider />
+      <PageTabs page={page} setPage={setPage} mocksOn={mocksOn} />
+
+      <Divider />
       <button className={`${button} flex items-center gap-1`} aria-haspopup="menu" onClick={(e) => showMenu(e, fileMenu)}>
         <FolderOpen size={ICON} className={HUE_TEXT.teal} />
         File
@@ -246,6 +252,33 @@ export function Toolbar({ status, setStatus, onError, onSetup }: Props) {
 
 function Divider() {
   return <div className="mx-0.5 h-5 w-px shrink-0 bg-line" />;
+}
+
+/** Traffic or Mocks (⌘1, ⌘2). */
+function PageTabs({ page, setPage, mocksOn }: { page: Page; setPage: (p: Page) => void; mocksOn: number }) {
+  const tabs: { id: Page; label: string; title: string }[] = [
+    { id: "traffic", label: "Traffic", title: "Captured requests (⌘1)" },
+    { id: "mocks", label: "Mocks", title: "Mocked APIs (⌘2)" },
+  ];
+  return (
+    <div role="tablist" aria-label="Page" className="flex shrink-0 items-center gap-0.5 rounded-full bg-ink/6 p-0.5">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          role="tab"
+          aria-selected={t.id === page}
+          title={t.title}
+          onClick={() => setPage(t.id)}
+          className={`flex items-center gap-1 rounded-full px-3 py-0.5 text-xs font-medium transition-colors ${
+            t.id === page ? "bg-panel text-ink shadow-thumb" : "text-muted hover:text-ink"
+          }`}
+        >
+          {t.label}
+          {t.id === "mocks" && <Badge n={mocksOn} hue="violet" />}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 /** Icon buttons sharing one rounded pill, as a group. */

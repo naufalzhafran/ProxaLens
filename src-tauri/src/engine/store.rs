@@ -55,6 +55,8 @@ pub struct FlowMeta {
     /// The app that made the request, when it could be identified.
     pub process: Option<String>,
     pub pid: Option<u32>,
+    /// The mock whose API this request called (see `mocks.rs`), served or not.
+    pub mock_id: Option<String>,
     /// Where the time went; `None` until response headers arrive, and for
     /// blocked, tunnelled and WebSocket flows.
     pub timings: Option<Timings>,
@@ -307,6 +309,7 @@ pub(crate) fn test_meta(path: &str) -> FlowMeta {
         ws_message_count: 0,
         timings: None,
         tags: Vec::new(),
+        mock_id: None,
         process: None,
         pid: None,
     }

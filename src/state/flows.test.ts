@@ -25,6 +25,7 @@ function flow(id: number, over: Partial<FlowMeta> = {}): FlowMeta {
     error: null,
     wsMessageCount: 0,
     timings: null,
+    mockId: null,
     tags: [], process: null, pid: null,
     ...over,
   };

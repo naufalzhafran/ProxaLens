@@ -6,9 +6,10 @@
 //! decoding happens when the UI asks (see `decode.rs`).
 //!
 //! For recorded flows the rules in `rules.rs` apply in this order:
-//! block → request rewrite → Map Local (skips the upstream) → Map Remote →
-//! upstream → response rewrite → throttle. Only flows a rewrite touches are
-//! buffered; everything else streams.
+//! block → request rewrite → enabled mock (`mocks.rs`, skips the upstream) →
+//! Map Local (skips the upstream) → Map Remote → upstream → response rewrite
+//! → throttle. Only flows a rewrite touches are buffered; everything else
+//! streams.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -29,6 +30,7 @@ use hudsucker::{
 use parking_lot::{Mutex, RwLock};
 
 use super::decode;
+use super::mocks::CompiledMocks;
 use super::rules::{
     self, CompiledRules, MapLocal, RequestParts, ResponseParts, normalize_url, rewrite_request,
     rewrite_response,
@@ -57,6 +59,7 @@ pub struct Recorder {
     pub body_cap: usize,
     pub settings: Arc<RwLock<Settings>>,
     pub rules: Arc<RwLock<Arc<CompiledRules>>>,
+    pub mocks: Arc<RwLock<Arc<CompiledMocks>>>,
     pub processes: Arc<super::procinfo::Resolver>,
     pub local: LocalPages,
     /// Upgraded WebSocket connections, keyed by the client's socket address.
@@ -78,6 +81,7 @@ impl Recorder {
         body_cap: usize,
         settings: Arc<RwLock<Settings>>,
         rules: Arc<RwLock<Arc<CompiledRules>>>,
+        mocks: Arc<RwLock<Arc<CompiledMocks>>>,
         processes: Arc<super::procinfo::Resolver>,
         local: LocalPages,
     ) -> Arc<Self> {
@@ -86,6 +90,7 @@ impl Recorder {
             body_cap,
             settings,
             rules,
+            mocks,
             processes,
             local,
             websockets: Mutex::new(HashMap::new()),
@@ -169,6 +174,7 @@ impl FlowHandler {
             ws_message_count: 0,
             timings: None,
             tags: Vec::new(),
+            mock_id: None,
             process: None,
             pid: None,
         };
@@ -478,6 +484,7 @@ impl HttpHandler for FlowHandler {
             ws_message_count: 0,
             timings: None,
             tags: Vec::new(),
+            mock_id: None,
             process: None,
             pid: None,
         };
@@ -568,6 +575,25 @@ impl HttpHandler for FlowHandler {
                 (m.method, m.url, m.scheme, m.host, m.path) = (method, url, scheme, host, path);
                 d.request_headers = headers;
             });
+        }
+
+        // A mocked API: note the call on the flow, and answer with the mock's
+        // response while it is enabled.
+        let mocks = self.rec.mocks.read().clone();
+        if let Some(mock) = mocks.find(&self.method, &self.url) {
+            let mock_id = mock.matcher.id.clone();
+            self.rec.store.update(id, |m, _| m.mock_id = Some(mock_id));
+            if mock.matcher.enabled {
+                self.tag("Mock");
+                self.rules = Some(rules.clone());
+                if mock.response.delay_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(mock.response.delay_ms))
+                        .await;
+                }
+                let r = &mock.response;
+                let res = build_response(r.status, &r.headers, r.body.clone().into_bytes());
+                return self.finish_response(res).await.into();
+            }
         }
 
         // Map Local answers without contacting the server.
