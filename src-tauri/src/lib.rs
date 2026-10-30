@@ -58,7 +58,7 @@ pub fn run() {
 
             let state = AppState::new(engine, sysproxy.clone());
             // Layer 4: a previous run died with the system proxy still on.
-            match sysproxy.recover_stale() {
+            match sysproxy.recover_stale(state.engine.settings().port) {
                 Ok(Some(report)) if !report.restored.is_empty() => {
                     *state.notice.lock() = Some(report)
                 }
@@ -111,10 +111,12 @@ pub fn run() {
 
     app.run(|handle, event| {
         // Layer 2: normal quit, window close, logout/shutdown.
-        if let RunEvent::Exit = event
-            && let Err(e) = handle.state::<AppState>().sysproxy.disable()
-        {
-            tracing::error!("could not restore system proxy on exit: {e}");
+        if let RunEvent::Exit = event {
+            let state = handle.state::<AppState>();
+            let port = *state.port.lock();
+            if let Err(e) = state.sysproxy.disable(port) {
+                tracing::error!("could not restore system proxy on exit: {e}");
+            }
         }
     });
 }

@@ -400,9 +400,16 @@ impl SysProxyController {
         matches!(sysproxy::read_marker(&self.marker_path), Ok(Some(m)) if m.pid == std::process::id())
     }
 
-    /// Layer 4: restore what a dead previous run left behind.
-    pub fn recover_stale(&self) -> Result<Option<RestoreReport>, SysProxyError> {
-        sysproxy::recover_stale(self.ns.as_ref(), &self.marker_path, sysproxy::pid_alive)
+    /// Layer 4: restore what a dead previous run left behind, including a
+    /// proxy still pointing at `port` when the marker itself was lost.
+    pub fn recover_stale(&self, port: u16) -> Result<Option<RestoreReport>, SysProxyError> {
+        sysproxy::recover(
+            self.ns.as_ref(),
+            &self.marker_path,
+            LOCALHOST,
+            port,
+            sysproxy::pid_alive,
+        )
     }
 
     pub fn enable(&self, host: &str, port: u16, mode: sysproxy::Mode) -> Result<(), SysProxyError> {
@@ -426,12 +433,23 @@ impl SysProxyController {
 
     /// Restores the user's settings (if we changed them) and stops the
     /// watchdog. Safe to call repeatedly and from any exit path.
-    pub fn disable(&self) -> Result<Option<RestoreReport>, SysProxyError> {
+    ///
+    /// Without a marker, anything still pointing at `port` is switched off:
+    /// the system must never be left routed through a proxy that is gone.
+    /// A marker owned by another process is left to that process.
+    pub fn disable(&self, port: u16) -> Result<Option<RestoreReport>, SysProxyError> {
         let report = match sysproxy::read_marker(&self.marker_path)? {
             Some(m) if m.pid == std::process::id() => {
                 Some(sysproxy::restore(self.ns.as_ref(), &self.marker_path, &m)?)
             }
-            _ => None,
+            Some(_) => None,
+            None => {
+                let restored = sysproxy::clear_dangling(self.ns.as_ref(), LOCALHOST, port)?;
+                (!restored.is_empty()).then(|| RestoreReport {
+                    restored,
+                    skipped: Vec::new(),
+                })
+            }
         };
         if let Some(mut child) = self.guard.lock().take() {
             let _ = child.kill();
@@ -454,6 +472,57 @@ pub fn emergency_restore(marker_path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sysproxy::ProxySetting;
+    use sysproxy::tests::FakeNs;
+
+    /// Lets a test keep a handle on the fake the controller owns.
+    struct Shared(Arc<FakeNs>);
+    impl NetworkSetup for Shared {
+        fn run(&self, args: &[String]) -> Result<String, SysProxyError> {
+            self.0.run(args)
+        }
+        fn run_admin(&self, cmds: &[Vec<String>]) -> Result<(), SysProxyError> {
+            self.0.run_admin(cmds)
+        }
+    }
+
+    fn ours() -> ProxySetting {
+        ProxySetting {
+            enabled: true,
+            server: LOCALHOST.into(),
+            port: 9090,
+        }
+    }
+
+    #[test]
+    fn controller_round_trips_and_clears_a_dangling_proxy() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("m.json");
+        let fake = Arc::new(FakeNs::new(&["Wi-Fi"]));
+        let ctl = SysProxyController::new(Box::new(Shared(fake.clone())), marker.clone());
+
+        ctl.enable(LOCALHOST, 9090, sysproxy::Mode::Manual).unwrap();
+        assert!(ctl.is_enabled());
+        assert_eq!(fake.get("Wi-Fi", "http"), ours());
+        let report = ctl.disable(9090).unwrap().unwrap();
+        assert_eq!(report.restored, vec!["Wi-Fi".to_string()]);
+        assert!(!ctl.is_enabled());
+        assert!(!fake.get("Wi-Fi", "http").enabled);
+
+        // No marker, but the system still points at us (a lost marker).
+        fake.set("Wi-Fi", "https", ours());
+        assert!(!ctl.is_enabled());
+        let report = ctl.disable(9090).unwrap().unwrap();
+        assert_eq!(report.restored, vec!["Wi-Fi".to_string()]);
+        assert!(!fake.get("Wi-Fi", "https").enabled);
+        assert!(ctl.disable(9090).unwrap().is_none());
+
+        // Same at launch.
+        fake.set("Wi-Fi", "http", ours());
+        let report = ctl.recover_stale(9090).unwrap().unwrap();
+        assert_eq!(report.restored, vec!["Wi-Fi".to_string()]);
+        assert!(!fake.get("Wi-Fi", "http").enabled);
+    }
 
     #[test]
     fn moves_the_old_data_folder_once() {

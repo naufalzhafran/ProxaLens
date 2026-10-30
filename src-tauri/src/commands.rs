@@ -128,7 +128,8 @@ pub async fn start_proxy(
 async fn stop(state: &AppState) -> CmdResult<()> {
     // Never leave the system pointing at a proxy that is gone.
     let sp = state.sysproxy.clone();
-    tauri::async_runtime::spawn_blocking(move || sp.disable())
+    let port = *state.port.lock();
+    tauri::async_runtime::spawn_blocking(move || sp.disable(port))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
@@ -170,7 +171,8 @@ pub async fn apply_system_proxy(state: &AppState, enabled: bool) -> CmdResult<()
             .map_err(|e| e.to_string())?
             .map_err(|e| e.to_string())?;
     } else {
-        tauri::async_runtime::spawn_blocking(move || sp.disable())
+        let port = *state.port.lock();
+        tauri::async_runtime::spawn_blocking(move || sp.disable(port))
             .await
             .map_err(|e| e.to_string())?
             .map_err(|e| e.to_string())?;

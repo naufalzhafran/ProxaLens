@@ -9,6 +9,13 @@
 //!
 //! A restore only touches a service whose proxy still points at us, so
 //! changes the user made by hand in the meantime are kept.
+//!
+//! A setting that points at our own address is never treated as the user's:
+//! it can only be left over from a run that lost its marker. Snapshots and
+//! markers record it as "off", and `clear_dangling` switches it off when no
+//! marker exists at all. Without this, one lost marker would make every
+//! later restore put our own proxy back, and the system would stay routed
+//! through a proxy that is about to go away.
 
 use std::fs;
 use std::io::{self, Write};
@@ -244,6 +251,59 @@ pub fn pac_url(host: &str, port: u16) -> String {
     format!("http://{host}:{port}/proxy.pac")
 }
 
+/// Records every setting that already points at `host:port` as "off". Such a
+/// setting is ours, left behind by a run that lost its marker, so restoring
+/// it would keep the system stuck on a proxy that is gone.
+fn disown(services: &mut [ServiceSnapshot], host: &str, port: u16) {
+    let pac = pac_url(host, port);
+    for svc in services {
+        for setting in [&mut svc.http, &mut svc.https] {
+            if setting.points_to(host, port) {
+                *setting = ProxySetting::default();
+            }
+        }
+        if svc.pac.enabled && svc.pac.url == pac {
+            svc.pac = AutoProxySetting::default();
+        }
+    }
+}
+
+/// Switches off every setting that still points at `host:port` although no
+/// marker claims it. Returns the services that were changed.
+pub fn clear_dangling(
+    ns: &dyn NetworkSetup,
+    host: &str,
+    port: u16,
+) -> Result<Vec<String>, SysProxyError> {
+    let pac = pac_url(host, port);
+    let mut cmds = Vec::new();
+    let mut touched = Vec::new();
+    for name in list_services(ns)? {
+        let mut hit = false;
+        for kind in [Kind::Http, Kind::Https] {
+            if read_setting(ns, &name, kind).is_ok_and(|s| s.points_to(host, port)) {
+                cmds.push(vec![kind.set_state().into(), name.clone(), "off".into()]);
+                hit = true;
+            }
+        }
+        if read_auto_proxy(ns, &name).is_ok_and(|p| p.enabled && p.url == pac) {
+            cmds.push(vec![
+                "-setautoproxystate".into(),
+                name.clone(),
+                "off".into(),
+            ]);
+            hit = true;
+        }
+        if hit {
+            touched.push(name);
+        }
+    }
+    if !cmds.is_empty() {
+        apply(ns, cmds)?;
+    }
+    Ok(touched)
+}
+
 /// Runs `networksetup` set commands. They print nothing on success (and
 /// sometimes exit 0 even on failure), so any output counts as a failure.
 /// Whatever fails is retried once with administrator rights.
@@ -321,10 +381,11 @@ pub fn enable_mode(
         restore(ns, marker_path, &old)?;
     }
 
-    let services = snapshot(ns)?;
+    let mut services = snapshot(ns)?;
     if services.is_empty() {
         return Err(SysProxyError::NoServices);
     }
+    disown(&mut services, host, port);
     let marker = Marker {
         version: 1,
         pid: std::process::id(),
@@ -381,7 +442,10 @@ pub fn restore(
 ) -> Result<RestoreReport, SysProxyError> {
     let mut report = RestoreReport::default();
     let mut cmds = Vec::new();
-    for svc in &marker.services {
+    // Markers written before `disown` existed may hold our own address.
+    let mut services = marker.services.clone();
+    disown(&mut services, &marker.host, marker.port);
+    for svc in &services {
         let mut touched = false;
         if marker.mode == Mode::Pac {
             if let Ok(current) = read_auto_proxy(ns, &svc.name)
@@ -452,18 +516,27 @@ pub fn restore(
 
 /// Restores a marker left behind by a process that is no longer running.
 /// Returns `None` when there is nothing to recover.
-pub fn recover_stale(
+/// Launch-time recovery: restores a marker left by a dead process, or, when
+/// there is no marker at all, switches off anything still pointing at
+/// `host:port`. A marker owned by a live process is left alone.
+pub fn recover(
     ns: &dyn NetworkSetup,
     marker_path: &Path,
+    host: &str,
+    port: u16,
     is_alive: impl Fn(u32) -> bool,
 ) -> Result<Option<RestoreReport>, SysProxyError> {
-    let Some(marker) = read_marker(marker_path)? else {
-        return Ok(None);
-    };
-    if marker.pid != std::process::id() && is_alive(marker.pid) {
-        return Ok(None);
+    match read_marker(marker_path)? {
+        Some(m) if m.pid != std::process::id() && is_alive(m.pid) => Ok(None),
+        Some(m) => restore(ns, marker_path, &m).map(Some),
+        None => {
+            let restored = clear_dangling(ns, host, port)?;
+            Ok((!restored.is_empty()).then(|| RestoreReport {
+                restored,
+                skipped: Vec::new(),
+            }))
+        }
     }
-    restore(ns, marker_path, &marker).map(Some)
 }
 
 pub fn pid_alive(pid: u32) -> bool {
@@ -698,7 +771,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn recover_stale_only_for_dead_pids() {
+    fn recover_restores_only_for_dead_pids() {
         let dir = tempfile::tempdir().unwrap();
         let marker = dir.path().join("m.json");
         let ns = FakeNs::new(&["Wi-Fi"]);
@@ -706,14 +779,136 @@ pub(crate) mod tests {
         m.pid = 999_999;
         write_marker(&marker, &m).unwrap();
 
-        assert!(recover_stale(&ns, &marker, |_| true).unwrap().is_none());
+        assert!(
+            recover(&ns, &marker, "127.0.0.1", 9090, |_| true)
+                .unwrap()
+                .is_none()
+        );
         assert!(marker.exists());
 
-        let report = recover_stale(&ns, &marker, |_| false).unwrap().unwrap();
+        let report = recover(&ns, &marker, "127.0.0.1", 9090, |_| false)
+            .unwrap()
+            .unwrap();
         assert_eq!(report.restored, vec!["Wi-Fi".to_string()]);
         assert!(!marker.exists());
         assert!(!ns.get("Wi-Fi", "http").enabled);
-        assert!(recover_stale(&ns, &marker, |_| false).unwrap().is_none());
+        assert!(
+            recover(&ns, &marker, "127.0.0.1", 9090, |_| false)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn recover_without_marker_switches_off_dangling_proxy() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("m.json");
+        let ns = FakeNs::new(&["Wi-Fi", "Ethernet"]);
+        let corp = ProxySetting {
+            enabled: true,
+            server: "proxy.corp".into(),
+            port: 3128,
+        };
+        // A previous run died and its marker is gone, but Wi-Fi still
+        // points at us. Ethernet belongs to the user.
+        ns.set("Wi-Fi", "http", ours());
+        ns.set("Wi-Fi", "https", ours());
+        ns.set("Ethernet", "http", corp.clone());
+
+        let report = recover(&ns, &marker, "127.0.0.1", 9090, |_| false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(report.restored, vec!["Wi-Fi".to_string()]);
+        assert!(!ns.get("Wi-Fi", "http").enabled);
+        assert!(!ns.get("Wi-Fi", "https").enabled);
+        assert_eq!(ns.get("Ethernet", "http"), corp);
+        assert!(
+            recover(&ns, &marker, "127.0.0.1", 9090, |_| false)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn clear_dangling_ignores_other_ports_and_handles_pac() {
+        let ns = FakeNs::new(&["Wi-Fi", "Ethernet", "USB"]);
+        ns.set("Wi-Fi", "http", ours());
+        ns.set(
+            "Ethernet",
+            "http",
+            ProxySetting {
+                enabled: true,
+                server: "127.0.0.1".into(),
+                port: 8080,
+            },
+        );
+        ns.pac.lock().insert(
+            "USB".into(),
+            AutoProxySetting {
+                enabled: true,
+                url: pac_url("127.0.0.1", 9090),
+            },
+        );
+        let touched = clear_dangling(&ns, "127.0.0.1", 9090).unwrap();
+        assert_eq!(touched, vec!["Wi-Fi".to_string(), "USB".to_string()]);
+        assert!(!ns.get("Wi-Fi", "http").enabled);
+        assert!(
+            ns.get("Ethernet", "http").enabled,
+            "another port is not ours"
+        );
+        assert!(!ns.pac.lock().get("USB").unwrap().enabled);
+        assert!(clear_dangling(&ns, "127.0.0.1", 9090).unwrap().is_empty());
+    }
+
+    #[test]
+    fn enable_never_records_our_own_proxy_as_the_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("m.json");
+        let ns = FakeNs::new(&["Wi-Fi"]);
+        // Left behind by a run whose marker was lost.
+        ns.set("Wi-Fi", "http", ours());
+        ns.set("Wi-Fi", "https", ours());
+
+        let m = enable(&ns, &marker, "127.0.0.1", 9090, 1.0).unwrap();
+        assert_eq!(m.services[0].http, ProxySetting::default());
+        assert_eq!(m.services[0].https, ProxySetting::default());
+
+        restore(&ns, &marker, &m).unwrap();
+        assert!(!ns.get("Wi-Fi", "http").enabled);
+        assert!(!ns.get("Wi-Fi", "https").enabled);
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn restore_of_an_old_poisoned_marker_switches_us_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("m.json");
+        let ns = FakeNs::new(&["Wi-Fi"]);
+        ns.set("Wi-Fi", "http", ours());
+        ns.set("Wi-Fi", "https", ours());
+        // A marker from before `disown`: the "original" is our own address.
+        let m = Marker {
+            version: 1,
+            pid: std::process::id(),
+            host: "127.0.0.1".into(),
+            port: 9090,
+            created_at: 1.0,
+            services: vec![ServiceSnapshot {
+                name: "Wi-Fi".into(),
+                http: ours(),
+                https: ours(),
+                pac: AutoProxySetting::default(),
+            }],
+            mode: Mode::Manual,
+            pac_url: String::new(),
+        };
+        write_marker(&marker, &m).unwrap();
+
+        let report = restore(&ns, &marker, &m).unwrap();
+        assert_eq!(report.restored, vec!["Wi-Fi".to_string()]);
+        assert!(!ns.get("Wi-Fi", "http").enabled);
+        assert!(!ns.get("Wi-Fi", "https").enabled);
+        assert!(!marker.exists());
     }
 
     #[test]
