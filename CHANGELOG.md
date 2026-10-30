@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 (2026-10-30)
+
+Quitting ProxaLens always gives the network back.
+
+- Closing the app no longer leaves Chrome and other browsers pointing at a proxy that is gone. If an earlier run had lost track of the system proxy, each "restore" put ProxaLens's own address back; that setting is now recognised as ours and switched off instead.
+- On quit, Stop Proxy, the system-proxy toggle and at launch, anything still routed to ProxaLens's port without a record of who set it is switched off. A launch-time cleanup shows the usual restore notice.
+
 ## 0.3.3 (2026-10-22)
 
 Hotfix for sites that send large HTTP/2 headers.
